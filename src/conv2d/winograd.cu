@@ -26,7 +26,7 @@ __device__ void winograd_4x4_3x3(float* g, float* d,  float* o){
     }
 }
 
-extern "C" __global__ void conv2d_winograd(conv2d_param_t param){
+__global__ void conv2d_winograd(conv2d_param_t param){
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     int z = blockIdx.z;

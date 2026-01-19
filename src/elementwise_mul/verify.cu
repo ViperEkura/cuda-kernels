@@ -3,7 +3,7 @@
 
 #include "kernels/elementwise_mul.h"
 
-__global__ void elementwise_mul(elementwise_mul_param_t param)
+__global__ void elementwise_mul_verify(elementwise_mul_param_t param)
 {
     int tx = threadIdx.x;
     int bx = blockIdx.x;
@@ -13,12 +13,12 @@ __global__ void elementwise_mul(elementwise_mul_param_t param)
     param.A[idx] = param.A[idx] * param.alpha + param.B[idx];
 }
 
-void launch_elementwise_mul(elementwise_mul_param_t param)
+void launch_elementwise_mul_verify(elementwise_mul_param_t param)
 {
     int thread = 32;
     int block = (param.p_size + thread - 1) / thread;
     
-    elementwise_mul<<<block, thread>>>(param);
+    elementwise_mul_verify<<<block, thread>>>(param);
 }
 
 #endif

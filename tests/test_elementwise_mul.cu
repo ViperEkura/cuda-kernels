@@ -28,7 +28,7 @@ int main()
     CHECK(cudaEventCreate(&stop));
 
     CHECK(cudaEventRecord(start));
-    launch_elementwise_mul(param);
+    launch_elementwise_mul_verify(param);
     CHECK(cudaEventRecord(stop));
 
     float milliseconds = 0;

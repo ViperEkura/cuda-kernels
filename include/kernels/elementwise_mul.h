@@ -6,4 +6,4 @@ struct elementwise_mul_param_t
     int    p_size;
 };
 
-void launch_elementwise_mul(elementwise_mul_param_t param);
+void launch_elementwise_mul_verify(elementwise_mul_param_t param);
