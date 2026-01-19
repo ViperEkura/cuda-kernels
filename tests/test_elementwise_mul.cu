@@ -1,4 +1,4 @@
-#include "elementwise_mul/func.h"
+#include "kernels/elementwise_mul.h"
 #include "common.h"
 
 

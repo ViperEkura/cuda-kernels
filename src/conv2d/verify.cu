@@ -1,8 +1,7 @@
 #ifndef CONV2D_VERIFY_CU
 #define CONV2D_VERIFY_CU
 
-#include "conv2d/defines.h"
-#include "conv2d/func.h"
+#include "kernels/conv2d.h"
 
 __global__ void conv2d_verify(conv2d_param_t param){
     int x = blockIdx.x * blockDim.x + threadIdx.x;

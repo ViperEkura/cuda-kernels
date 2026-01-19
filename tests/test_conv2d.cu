@@ -1,4 +1,4 @@
-#include "conv2d/func.h"
+#include "kernels/conv2d.h"
 #include <stdio.h>
 
 

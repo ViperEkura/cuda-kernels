@@ -5,3 +5,5 @@ struct elementwise_mul_param_t
     float  alpha;
     int    p_size;
 };
+
+void launch_elementwise_mul(elementwise_mul_param_t param);

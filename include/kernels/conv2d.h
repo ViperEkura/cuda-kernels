@@ -1,6 +1,3 @@
-#ifndef CONV2D_DEFINES_H
-#define CONV2D_DEFINES_H
-
 struct conv2d_param_t{
     float*   in;                             //输入数据地址
     float*   weight;                         //权值数据地址
@@ -20,4 +17,6 @@ struct conv2d_param_t{
     unsigned int      Ow;                             //卷积在宽方向上输出大小
 };
 
-#endif
+void launch_implgemm(conv2d_param_t param);
+void launch_verify(conv2d_param_t param);
+void launch_winograd(conv2d_param_t param);

@@ -1,4 +1,7 @@
-#include "elementwise_mul/func.h"
+#ifndef ELEMENTWISE_MUL_CU
+#define ELEMENTWISE_MUL_CU
+
+#include "kernels/elementwise_mul.h"
 
 __global__ void elementwise_mul(elementwise_mul_param_t param)
 {
@@ -17,3 +20,5 @@ void launch_elementwise_mul(elementwise_mul_param_t param)
     
     elementwise_mul<<<block, thread>>>(param);
 }
+
+#endif

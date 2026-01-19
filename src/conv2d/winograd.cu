@@ -1,8 +1,7 @@
-#ifndef WINOGRAD_CUH
-#define WINOGRAD_CUH
+#ifndef WINOGRAD_CU
+#define WINOGRAD_CU
 
-#include "conv2d/defines.h"
-#include "conv2d/func.h"
+#include "kernels/conv2d.h"
 
 __device__ void winograd_4x4_3x3(float* g, float* d,  float* o){
     //g[3,3], d[6, 6], o[4, 4]

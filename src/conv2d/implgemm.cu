@@ -1,8 +1,7 @@
 #ifndef IMPLGEMM_CU
 #define IMPLGEMM_CU
 
-#include "conv2d/defines.h"
-#include "conv2d/func.h"
+#include "kernels/conv2d.h"
 
 __global__ void implgemm(conv2d_param_t param)
 {

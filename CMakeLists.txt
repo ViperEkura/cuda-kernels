@@ -36,17 +36,14 @@ foreach(test_source IN LISTS TEST_SOURCES)
     endif()
 
     # 添加头文件路径
-    target_include_directories(${test_name}
-        PRIVATE
-            ${PROJECT_SOURCE_DIR}/include
-    )
+    target_include_directories(${test_name} PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
     # 链接 CUDA 运行时
     target_link_libraries(${test_name} PRIVATE CUDA::cudart)
 
     # 设置 GPU 架构等属性
     set_target_properties(${test_name} PROPERTIES
-        CUDA_ARCHITECTURES "75;86;89"
+        CUDA_ARCHITECTURES "75;80;86;89;90"
         CUDA_SEPARABLE_COMPILATION ON
     )
 endforeach()
