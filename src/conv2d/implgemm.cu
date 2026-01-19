@@ -4,7 +4,7 @@
 #include "conv2d/defines.h"
 #include "conv2d/func.h"
 
-__global__ void implgemm(param_t param)
+__global__ void implgemm(conv2d_param_t param)
 {
     int tx = threadIdx.x;
     int bx = blockIdx.x;
@@ -244,7 +244,7 @@ __global__ void implgemm(param_t param)
     }
 }
 
-void launch_implgemm(param_t param)
+void launch_implgemm(conv2d_param_t param)
 {
     unsigned int n = param.n;
     //unsigned int c = param.c;

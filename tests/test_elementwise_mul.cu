@@ -1,43 +1,14 @@
-#include <cuda_runtime.h>
-#include <stdio.h>
-
-#define CHECK(call)                                                             \
-{                                                                               \
-    const cudaError_t error = call;                                             \
-    if (error != cudaSuccess)                                                   \
-    {                                                                           \
-        printf("Error: %s, Line: %d\n", __FILE__, __LINE__);                    \
-        printf("Error code: %d, Reason: %s\n", error, cudaGetErrorString(error)); \
-        exit(-1);                                                               \
-    }                                                                           \
-}
-
-struct param_t
-{
-    float *A;
-    float *B;
-    float  alpha;
-    int    p_size;
-};
-
-__global__ void operator_kernel(param_t param)
-{
-    int tx = threadIdx.x;
-    int bx = blockIdx.x;
-    int idx = bx * blockDim.x + tx;
-    if (idx >= param.p_size) return;
-
-    param.A[idx] = param.A[idx] * param.alpha + param.B[idx];
-}
+#include "elementwise_mul/func.h"
+#include "common.h"
 
 
 int main()
 {
-    const int N = (int)1e9;
+    const int N = (int)1e8;
     const float alpha = 1;
     float *host_A, *host_B;
     
-    param_t param;
+    elementwise_mul_param_t param;
     param.alpha = alpha;
     param.p_size = N;
 
@@ -51,17 +22,13 @@ int main()
     CHECK(cudaMemcpy(param.A, host_A, sizeof(float) * N, cudaMemcpyHostToDevice));
     CHECK(cudaMemcpy(param.B, host_B, sizeof(float) * N, cudaMemcpyHostToDevice));
 
-    int thread = 32;
-    int block = (N + thread - 1) / thread;
-    
-
     // 创建 CUDA 事件
     cudaEvent_t start, stop;
     CHECK(cudaEventCreate(&start));
     CHECK(cudaEventCreate(&stop));
 
     CHECK(cudaEventRecord(start));
-    operator_kernel<<<block, thread>>>(param);
+    launch_elementwise_mul(param);
     CHECK(cudaEventRecord(stop));
 
     float milliseconds = 0;

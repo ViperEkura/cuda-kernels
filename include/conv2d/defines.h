@@ -1,7 +1,7 @@
 #ifndef CONV2D_DEFINES_H
 #define CONV2D_DEFINES_H
 
-struct param_t{
+struct conv2d_param_t{
     float*   in;                             //输入数据地址
     float*   weight;                         //权值数据地址
     float*   out;                            //输出数据地址

@@ -2,7 +2,7 @@
 #include <stdio.h>
 
 
-void (*launch_func)(param_t) = launch_implgemm;
+void (*launch_func)(conv2d_param_t) = launch_implgemm;
 // 选择测试用的启动函数类型
 
 int main(int argc, char**argv){
@@ -51,7 +51,7 @@ int main(int argc, char**argv){
 
 
     /*****************************step 1*****************************/
-    param_t param;
+    conv2d_param_t param;
     param.in        = pIn_device;        
     param.weight    = pWeight_device;
     param.out       = pOut_device;         
@@ -70,7 +70,7 @@ int main(int argc, char**argv){
     param.Ow = (w - s + 2*q) / v + 1;                               
 
     /*****************************step 2*****************************/
-    int paramSize = sizeof(param_t);
+    int paramSize = sizeof(conv2d_param_t);
     /*******************************warm up and get result************************************/
     
     launch_verify(param);

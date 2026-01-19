@@ -4,7 +4,7 @@
 #include "conv2d/defines.h"
 #include "conv2d/func.h"
 
-__global__ void conv2d_verify(param_t param){
+__global__ void conv2d_verify(conv2d_param_t param){
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     int z = blockIdx.z;
@@ -52,7 +52,7 @@ __global__ void conv2d_verify(param_t param){
 
 }
 
-void launch_verify(param_t param){
+void launch_verify(conv2d_param_t param){
     unsigned int n = param.n;
     //unsigned int c = param.c;
     unsigned int h = param.h;
