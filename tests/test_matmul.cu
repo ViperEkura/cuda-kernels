@@ -2,11 +2,11 @@
 #include "common.h"
 
 
-int main()
+int main(int argc, char** argv)
 {
-    const int M = 1024;
-    const int N = 1024;
-    const int K = 1024;
+    const int M = atoi(argv[1]);
+    const int N = atoi(argv[2]);
+    const int K = atoi(argv[3]);
     
     matmul_param_t param;
     param.M = M;
@@ -18,12 +18,12 @@ int main()
     float* host_B = (float*)malloc(sizeof(float) * N * K);
     float* host_C = (float*)malloc(sizeof(float) * M * N);
 
-    CHECK(cudaMalloc((void**)&param.src_A, sizeof(float) * M * K));
-    CHECK(cudaMalloc((void**)&param.src_B, sizeof(float) * N * K));
+    CHECK(cudaMalloc((void**)&param.lhs, sizeof(float) * M * K));
+    CHECK(cudaMalloc((void**)&param.rhs, sizeof(float) * N * K));
     CHECK(cudaMalloc((void**)&param.dst, sizeof(float) * M * N))
 
-    CHECK(cudaMemcpy(param.src_A, host_A, sizeof(float) * M * K, cudaMemcpyHostToDevice));
-    CHECK(cudaMemcpy(param.src_B, host_B, sizeof(float) * N * K, cudaMemcpyHostToDevice));
+    CHECK(cudaMemcpy(param.lhs, host_A, sizeof(float) * M * K, cudaMemcpyHostToDevice));
+    CHECK(cudaMemcpy(param.rhs, host_B, sizeof(float) * N * K, cudaMemcpyHostToDevice));
     CHECK(cudaMemcpy(param.dst, host_C, sizeof(float) * M * N, cudaMemcpyHostToDevice));
 
     cudaEvent_t start, stop;
@@ -44,11 +44,11 @@ int main()
     CHECK(cudaEventDestroy(start));
     CHECK(cudaEventDestroy(stop));
 
-    CHECK(cudaMemcpy(host_A, param.src_A, sizeof(float) * M * K, cudaMemcpyDeviceToHost));
-    CHECK(cudaMemcpy(host_B, param.src_B, sizeof(float) * N * K, cudaMemcpyDeviceToHost));
-    CHECK(cudaMemcpy(host_C, param.dst, sizeof(float) * M * N, cudaMemcpyDeviceToHost))
-    CHECK(cudaFree(param.src_A));
-    CHECK(cudaFree(param.src_B));
+    CHECK(cudaMemcpy(host_A, param.lhs, sizeof(float) * M * K, cudaMemcpyDeviceToHost));
+    CHECK(cudaMemcpy(host_B, param.rhs, sizeof(float) * N * K, cudaMemcpyDeviceToHost));
+    CHECK(cudaMemcpy(host_C, param.dst, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
+    CHECK(cudaFree(param.lhs));
+    CHECK(cudaFree(param.rhs));
     CHECK(cudaFree(param.dst));
 
     free(host_A);

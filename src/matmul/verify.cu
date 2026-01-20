@@ -4,8 +4,8 @@ static constexpr int TILE_SIZE = 16;
 
 __global__ void matmul_verify(matmul_param_t param)
 {
-    float* A = param.src_A;
-    float* B = param.src_B;
+    float* A = param.lhs;
+    float* B = param.rhs;
     float* C = param.dst;
 
     int M = param.M;

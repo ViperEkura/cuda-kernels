@@ -51,7 +51,7 @@ __global__ void conv2d_verify(conv2d_param_t param){
 
 }
 
-void launch_verify(conv2d_param_t param){
+void launch_conv2d_verify(conv2d_param_t param){
     unsigned int n = param.n;
     //unsigned int c = param.c;
     unsigned int h = param.h;

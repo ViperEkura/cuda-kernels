@@ -73,7 +73,7 @@ int main(int argc, char**argv){
     int paramSize = sizeof(conv2d_param_t);
     /*******************************warm up and get result************************************/
     
-    launch_verify(param);
+    launch_conv2d_verify(param);
     cudaMemcpy(pOut_verify, pOut_device,  n*k*outh*outw*sizeof(float), cudaMemcpyDeviceToHost);
 
     launch_func(param);

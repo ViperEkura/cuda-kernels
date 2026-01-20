@@ -1,3 +1,6 @@
+#ifndef COMMON_H
+#define COMMON_H
+
 #include <driver_types.h>
 #include <stdio.h>
 
@@ -11,3 +14,5 @@
         exit(-1);                                                               \
     }                                                                           \
 }
+
+#endif
