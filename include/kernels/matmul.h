@@ -14,5 +14,6 @@ struct  matmul_param_t
 };
 
 void launch_matmul_verify(matmul_param_t param);
+void launch_matmul_tiled(matmul_param_t param);
 
 #endif

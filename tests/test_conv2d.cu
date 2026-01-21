@@ -1,5 +1,5 @@
 #include "kernels/conv2d.h"
-#include <stdio.h>
+#include "common.h"
 
 
 void (*launch_func)(conv2d_param_t) = launch_implgemm;
@@ -116,19 +116,7 @@ int main(int argc, char**argv){
         exit(-1);
     }
     
-    printf("===================start verfiy===================\n");
-    
-
-    int error=0;
-    for(int i=0;i<n*k*outh*outw;i++){
-        if((fabs(pOut[i] - pOut_verify[i]))/ pOut_verify[i] > 0.01 || isnan(pOut[i]) || isinf(pOut[i])){
-            printf("error, postion:%d, gpuvalue:%f, cpuvalue:%f\n", i, pOut[i], pOut_verify[i]);
-            error++;
-            break;
-        }        
-    }
-
-    printf("================finish,error:%d=========================\n",error);
+    check_result(n*k*outh*outw, pOut, pOut_verify);
 
     cudaFree(pIn_device);
     cudaFree(pWeight_device);

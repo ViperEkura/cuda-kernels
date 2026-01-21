@@ -1,6 +1,7 @@
 #include "kernels/matmul.h"
 #include "common.h"
 
+void (*launch_func)(matmul_param_t) = launch_matmul_tiled;
 
 int main(int argc, char** argv)
 {
@@ -13,10 +14,15 @@ int main(int argc, char** argv)
     param.N = N;
     param.K = K;
 
-
     float* host_A = (float*)malloc(sizeof(float) * M * K);
     float* host_B = (float*)malloc(sizeof(float) * N * K);
     float* host_C = (float*)malloc(sizeof(float) * M * N);
+    float* host_C_verify = (float*)malloc(sizeof(float) * M * N);
+
+    unsigned seed = 42;
+    srand(seed);
+    for (int i = 0; i < M * K; i++) host_A[i] = (rand() % 255) / 256.0f;
+    for (int i = 0; i < N * K; i++) host_B[i] = (rand() % 255) / 256.0f;
 
     CHECK(cudaMalloc((void**)&param.lhs, sizeof(float) * M * K));
     CHECK(cudaMalloc((void**)&param.rhs, sizeof(float) * N * K));
@@ -24,18 +30,17 @@ int main(int argc, char** argv)
 
     CHECK(cudaMemcpy(param.lhs, host_A, sizeof(float) * M * K, cudaMemcpyHostToDevice));
     CHECK(cudaMemcpy(param.rhs, host_B, sizeof(float) * N * K, cudaMemcpyHostToDevice));
-    CHECK(cudaMemcpy(param.dst, host_C, sizeof(float) * M * N, cudaMemcpyHostToDevice));
 
     cudaEvent_t start, stop;
     CHECK(cudaEventCreate(&start));
     CHECK(cudaEventCreate(&stop));
 
     CHECK(cudaEventRecord(start));
-    launch_matmul_verify(param);
+    launch_func(param);
     CHECK(cudaEventRecord(stop));
 
     float milliseconds = 0;
-    CHECK(cudaDeviceSynchronize()); // 同步
+    CHECK(cudaDeviceSynchronize());
     CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
 
     printf("Kernel execution time: %.3f ms\n", milliseconds);
@@ -44,9 +49,14 @@ int main(int argc, char** argv)
     CHECK(cudaEventDestroy(start));
     CHECK(cudaEventDestroy(stop));
 
-    CHECK(cudaMemcpy(host_A, param.lhs, sizeof(float) * M * K, cudaMemcpyDeviceToHost));
-    CHECK(cudaMemcpy(host_B, param.rhs, sizeof(float) * N * K, cudaMemcpyDeviceToHost));
     CHECK(cudaMemcpy(host_C, param.dst, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
+
+    launch_matmul_verify(param);
+    CHECK(cudaDeviceSynchronize())
+    CHECK(cudaMemcpy(host_C_verify, param.dst, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
+    check_result(N, host_C, host_C_verify);
+
+
     CHECK(cudaFree(param.lhs));
     CHECK(cudaFree(param.rhs));
     CHECK(cudaFree(param.dst));
@@ -54,6 +64,7 @@ int main(int argc, char** argv)
     free(host_A);
     free(host_B);
     free(host_C);
+    free(host_C_verify);
 
     return 0;
 }

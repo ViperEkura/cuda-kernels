@@ -52,22 +52,11 @@ int main(int argc, char** argv)
 
     CHECK(cudaMemcpy(dst, param.dst, sizeof(float) * N, cudaMemcpyDeviceToHost));
 
-    launch_func(param);
+    launch_elementwise_mul_verify(param);
     CHECK(cudaDeviceSynchronize())
     
     CHECK(cudaMemcpy(dst_verify, param.dst, sizeof(float) * N, cudaMemcpyDeviceToHost));
-
-    printf("===================start verfiy===================\n");
-
-    int error=0;
-    for(int i=0;i<N; i++){
-        if((fabs(dst[i] - dst_verify[i])) > 0.01 * dst[i] || isnan(dst[i]) || isinf(dst[i])){
-            printf("error, postion:%d, gpuvalue:%f, cpuvalue:%f\n", i, dst[i], dst_verify[i]);
-            error++;
-            break;
-        }        
-    }
-    printf("================finish,error:%d=========================\n",error);
+    check_result(N, dst, dst_verify);    
 
     CHECK(cudaFree(param.lhs));
     CHECK(cudaFree(param.rhs));
