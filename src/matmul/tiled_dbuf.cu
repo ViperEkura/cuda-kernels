@@ -9,7 +9,7 @@ static constexpr int MEM_PER_THRED_LHS = (BM * BK) / THREAD_NUM;
 static constexpr int MEM_PER_THRED_RHS = (BN * BK) / THREAD_NUM;
 
 
-__global__ void matmul_tiled_v2(matmul_param_t param)
+__global__ void matmul_tiled_dbuf(matmul_param_t param)
 {
     const int M = param.M;
     const int N = param.N;
@@ -27,9 +27,12 @@ __global__ void matmul_tiled_v2(matmul_param_t param)
     const int load_gmem_a_m = by * BM + load_smem_a_m;
     const int load_gmem_b_n = bx * BN + load_smem_b_n;
 
+    int compute_flag = 1 & 1;
+    int fetch_flag = 0 & 1;
+
     // use transpose to get less bank conflict
-    __shared__ float lhs[BK][BM];
-    __shared__ float rhs[BK][BN];
+    __shared__ float lhs[2][BK][BM];
+    __shared__ float rhs[2][BK][BN];
     float dst[TM][TN];
 
     for(int m = 0; m < TM; m++){
@@ -38,7 +41,37 @@ __global__ void matmul_tiled_v2(matmul_param_t param)
         }
     }
 
-    for (int bk = 0; bk < (K + BK - 1) / BK; bk++){
+    // fetch bk = 0
+    {
+        int load_gmem_a_k = load_smem_a_k;
+        int load_gmem_b_k = load_smem_b_k;
+        int load_gmem_a_addr = load_gmem_a_m * K + load_gmem_a_k;
+        int load_gmem_b_addr = load_gmem_b_k * N + load_gmem_b_n;
+    
+    #pragma unroll
+        for(int k = 0; k < MEM_PER_THRED_LHS; k++){
+            if(load_gmem_a_m < M && (load_gmem_a_k + k) < K) {
+                lhs[fetch_flag][load_smem_a_k + k][load_smem_a_m] = param.lhs[load_gmem_a_addr + k];
+            } else {
+                lhs[fetch_flag][load_smem_a_k + k][load_smem_a_m] = 0.0f;
+            }
+        }
+    #pragma unroll
+        for(int n = 0; n < MEM_PER_THRED_RHS; n++){
+            if(load_gmem_b_k < K && (load_gmem_b_n + n) < N) {
+                rhs[fetch_flag][load_smem_b_k][load_smem_b_n + n] = param.rhs[load_gmem_b_addr + n];
+            } else {
+                rhs[fetch_flag][load_smem_b_k][load_smem_b_n + n] = 0.0f;
+            }
+        }
+    }
+    __syncthreads();
+
+    // fetch bk  (1 -> bk - 1), compute k  (0 -> bk - 2)
+    for (int bk = 1; bk < (K + BK - 1) / BK; bk++){
+        compute_flag = (bk - 1) & 1;
+        fetch_flag = bk & 1;
+
         // step 1:  fetch
         int load_gmem_a_k = bk * BK + load_smem_a_k;
         int load_gmem_a_addr = load_gmem_a_m * K + load_gmem_a_k;
@@ -48,18 +81,18 @@ __global__ void matmul_tiled_v2(matmul_param_t param)
     #pragma unroll
         for(int k = 0; k < MEM_PER_THRED_LHS; k++){
             if(load_gmem_a_m < M && (load_gmem_a_k + k) < K) {
-                lhs[load_smem_a_k + k][load_smem_a_m] = param.lhs[load_gmem_a_addr + k];
+                lhs[fetch_flag][load_smem_a_k + k][load_smem_a_m] = param.lhs[load_gmem_a_addr + k];
             } else {
-                lhs[load_smem_a_k + k][load_smem_a_m] = 0.0f;
+                lhs[fetch_flag][load_smem_a_k + k][load_smem_a_m] = 0.0f;
             }
         }
 
     #pragma unroll
         for(int n = 0; n < MEM_PER_THRED_RHS; n++){
             if(load_gmem_b_k < K && (load_gmem_b_n + n) < N) {
-                rhs[load_smem_b_k][load_smem_b_n + n] = param.rhs[load_gmem_b_addr + n];
+                rhs[fetch_flag][load_smem_b_k][load_smem_b_n + n] = param.rhs[load_gmem_b_addr + n];
             } else {
-                rhs[load_smem_b_k][load_smem_b_n + n] = 0.0f;
+                rhs[fetch_flag][load_smem_b_k][load_smem_b_n + n] = 0.0f;
             }
         }
         __syncthreads();
@@ -73,12 +106,28 @@ __global__ void matmul_tiled_v2(matmul_param_t param)
                 for(int n = 0; n < TN; n++){
                     int store_smem_a_m = ty * TM + m;
                     int store_smem_b_n = tx * TN + n;
-                    dst[m][n] += lhs[k][store_smem_a_m] * rhs[k][store_smem_b_n];
+                    dst[m][n] += lhs[compute_flag][k][store_smem_a_m] * rhs[compute_flag][k][store_smem_b_n];
                 }
             }
         }
     }
 
+    // compute bk - 1
+    compute_flag = fetch_flag;
+#pragma unroll
+    for (int k = 0; k < BK; k++){
+#pragma unroll
+        for(int m = 0; m < TM; m++){
+#pragma unroll
+            for(int n = 0; n < TN; n++){
+                int store_smem_a_m = ty * TM + m;
+                int store_smem_b_n = tx * TN + n;
+                dst[m][n] += lhs[compute_flag][k][store_smem_a_m] * rhs[compute_flag][k][store_smem_b_n];
+            }
+        }
+    }
+
+    // write back
     #pragma unroll
     for (int m = 0; m < TM; m++){
         int store_gmem_c_m = by * BM + ty * TM + m;
@@ -93,9 +142,9 @@ __global__ void matmul_tiled_v2(matmul_param_t param)
     }
 }
 
-void launch_matmul_tiled_v2(matmul_param_t param)
+void launch_matmul_tiled_dbuf(matmul_param_t param)
 {
     dim3 block(BN / TN, BM / TM);  
     dim3 grid((param.N + BN - 1) / BN, (param.M + BM - 1) / BM);
-    matmul_tiled_v2<<<grid, block>>>(param);
+    matmul_tiled_dbuf<<<grid, block>>>(param);
 }
