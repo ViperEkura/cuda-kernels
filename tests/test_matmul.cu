@@ -1,7 +1,7 @@
 #include "kernels/matmul.h"
 #include "common.h"
 
-void (*launch_func)(matmul_param_t) = launch_matmul_tiled_v2;
+void (*launch_func)(matmul_param_t) = launch_matmul_tiled_dbuf;
 
 int main(int argc, char** argv)
 {
@@ -31,6 +31,10 @@ int main(int argc, char** argv)
     CHECK(cudaMemcpy(param.lhs, host_A, sizeof(float) * M * K, cudaMemcpyHostToDevice));
     CHECK(cudaMemcpy(param.rhs, host_B, sizeof(float) * N * K, cudaMemcpyHostToDevice));
 
+    launch_matmul_verify(param);
+    CHECK(cudaDeviceSynchronize())
+    CHECK(cudaMemcpy(host_C_verify, param.dst, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
+
     cudaEvent_t start, stop;
     CHECK(cudaEventCreate(&start));
     CHECK(cudaEventCreate(&stop));
@@ -42,21 +46,13 @@ int main(int argc, char** argv)
     float milliseconds = 0;
     CHECK(cudaDeviceSynchronize());
     CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
-
-    printf("Kernel execution time: %.3f ms\n", milliseconds);
-
-    // 销毁 CUDA 事件
-    CHECK(cudaEventDestroy(start));
-    CHECK(cudaEventDestroy(stop));
-
     CHECK(cudaMemcpy(host_C, param.dst, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
 
-    launch_matmul_verify(param);
-    CHECK(cudaDeviceSynchronize())
-    CHECK(cudaMemcpy(host_C_verify, param.dst, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
+    printf("Kernel execution time: %.3f ms\n", milliseconds);
     check_result(N, host_C, host_C_verify);
 
-
+    CHECK(cudaEventDestroy(start));
+    CHECK(cudaEventDestroy(stop));
     CHECK(cudaFree(param.lhs));
     CHECK(cudaFree(param.rhs));
     CHECK(cudaFree(param.dst));
