@@ -36,7 +36,6 @@ __global__ void matmul_tiled_v2(matmul_param_t param)
             dst[m][n] = 0;
         }
     }
-    __syncthreads();
 
     for (int bk = 0; bk < (K + BK - 1) / BK; bk++){
         // step 1:  fetch
