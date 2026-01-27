@@ -1,8 +1,8 @@
 #include "kernels/matmul.h"
 
-static constexpr int TILE_SIZE = 32;
+static constexpr int TILE_SIZE = 8;
 
-__global__ void matmul_tiled(matmul_param_t param)
+__global__ void matmul_tiled_v1(matmul_param_t param)
 {
     int M = param.M;
     int N = param.N;
@@ -54,7 +54,7 @@ __global__ void matmul_tiled(matmul_param_t param)
         __syncthreads();
     }
 
-    if (load_gmem_m < M || load_gmem_n < N)
+    if (load_gmem_m < M && load_gmem_n < N)
     {
         int store_gmem_c_addr = load_gmem_m * N + load_gmem_n;
         param.dst[store_gmem_c_addr] = sum;
@@ -62,9 +62,9 @@ __global__ void matmul_tiled(matmul_param_t param)
 
 }
 
-void launch_matmul_tiled(matmul_param_t param)
+void launch_matmul_tiled_v1(matmul_param_t param)
 {
     dim3 block(TILE_SIZE, TILE_SIZE);  
     dim3 grid((param.N + TILE_SIZE - 1) / TILE_SIZE, (param.M + TILE_SIZE - 1) / TILE_SIZE);
-    matmul_tiled<<<grid, block>>>(param);
+    matmul_tiled_v1<<<grid, block>>>(param);
 }
