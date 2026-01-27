@@ -27,7 +27,8 @@ __global__ void matmul_tiled_v2(matmul_param_t param)
     const int load_gmem_a_m = by * BM + load_smem_a_m;
     const int load_gmem_b_n = bx * BN + load_smem_b_n;
 
-    __shared__ float lhs[BM][BK];
+    // use transpose to avoid bank conflict
+    __shared__ float lhs[BK][BM];
     __shared__ float rhs[BK][BN];
     float dst[TM][TN];
 
@@ -47,9 +48,9 @@ __global__ void matmul_tiled_v2(matmul_param_t param)
     #pragma unroll
         for(int k = 0; k < MEM_PER_THRED_LHS; k++){
             if(load_gmem_a_m < M && (load_gmem_a_k + k) < K) {
-                lhs[load_smem_a_m][load_smem_a_k + k] = param.lhs[load_gmem_a_addr + k];
+                lhs[load_smem_a_k + k][load_smem_a_m] = param.lhs[load_gmem_a_addr + k];
             } else {
-                lhs[load_smem_a_m][load_smem_a_k + k] = 0.0f;
+                lhs[load_smem_a_k + k][load_smem_a_m] = 0.0f;
             }
         }
 
@@ -72,7 +73,7 @@ __global__ void matmul_tiled_v2(matmul_param_t param)
                 for(int n = 0; n < TN; n++){
                     int store_smem_a_m = ty * TM + m;
                     int store_smem_b_n = tx * TN + n;
-                    dst[m][n] += lhs[store_smem_a_m][k] * rhs[k][store_smem_b_n];
+                    dst[m][n] += lhs[k][store_smem_a_m] * rhs[k][store_smem_b_n];
                 }
             }
         }
