@@ -29,7 +29,6 @@
 运行项目项目参照以下命令行：
 
 ```bash
-cmake -S . -B ./build -G "Unix Makefiles"
-cd build/
-make
+cmake -S . -B ./build
+make -C ./build
 ```

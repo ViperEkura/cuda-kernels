@@ -8,6 +8,9 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 find_package(CUDAToolkit REQUIRED)
 
+set(CUDA_OPT_FLAGS "-O3 --use_fast_math -Xptxas -O3,-v")
+set(CXX_OPT_FLAGS "-O3 -march=native -mtune=native")
+
 # 设置输出目录为 bin/
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
 
