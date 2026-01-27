@@ -27,8 +27,8 @@ __global__ void matmul_tiled_dbuf(matmul_param_t param)
     const int load_gmem_a_m = by * BM + load_smem_a_m;
     const int load_gmem_b_n = bx * BN + load_smem_b_n;
 
-    int compute_flag = 1 & 1;
-    int fetch_flag = 0 & 1;
+    int fetch_flag = 0;
+    int compute_flag = fetch_flag ^ 1;
 
     // use transpose to get less bank conflict
     __shared__ float lhs[2][BK][BM];
@@ -69,8 +69,8 @@ __global__ void matmul_tiled_dbuf(matmul_param_t param)
 
     // fetch bk  (1 -> bk - 1), compute k  (0 -> bk - 2)
     for (int bk = 1; bk < (K + BK - 1) / BK; bk++){
-        compute_flag = (bk - 1) & 1;
-        fetch_flag = bk & 1;
+        compute_flag ^= 1;
+        fetch_flag ^= 1;
 
         // step 1:  fetch
         int load_gmem_a_k = bk * BK + load_smem_a_k;
@@ -95,7 +95,6 @@ __global__ void matmul_tiled_dbuf(matmul_param_t param)
                 rhs[fetch_flag][load_smem_b_k][load_smem_b_n + n] = 0.0f;
             }
         }
-        __syncthreads();
 
         // step 2: calculate
     #pragma unroll
@@ -110,10 +109,12 @@ __global__ void matmul_tiled_dbuf(matmul_param_t param)
                 }
             }
         }
+        // step3: sync per k
+        __syncthreads();
     }
 
     // compute bk - 1
-    compute_flag = fetch_flag;
+    compute_flag ^= 1;
 #pragma unroll
     for (int k = 0; k < BK; k++){
 #pragma unroll
