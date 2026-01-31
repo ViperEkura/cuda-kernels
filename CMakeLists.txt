@@ -27,11 +27,27 @@ find_library(CUDNN_LIBRARY
 )
 
 if(NOT CUDNN_INCLUDE_DIR OR NOT CUDNN_LIBRARY)
-    message(FATAL_ERROR "cuDNN not found. Please set CUDNN_ROOT to the root directory of cuDNN (e.g., /usr/local/cuda or your extracted folder).")
+    message(FATAL_ERROR "cuDNN not found. Please set CUDNN_ROOT to the root directory of cuDNN 
+    (e.g., /usr/local/cuda or your extracted folder).")
 endif()
 
-set(CUDA_OPT_FLAGS "-O3 --use_fast_math -Xptxas -O3,-v")
-set(CXX_OPT_FLAGS "-O3 -march=native -mtune=native")
+add_library(cuDNN::cuDNN UNKNOWN IMPORTED)
+set_target_properties(cuDNN::cuDNN PROPERTIES
+    IMPORTED_LOCATION "${CUDNN_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${CUDNN_INCLUDE_DIR}"
+)
+
+macro(set_optimization_flags TARGET_NAME)
+    target_compile_options(${TARGET_NAME} PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:-O3>
+        $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>
+        $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas>
+        $<$<COMPILE_LANGUAGE:CUDA>:-O3,-v>
+        $<$<COMPILE_LANGUAGE:CXX>:-O3>
+        $<$<COMPILE_LANGUAGE:CXX>:-march=native>
+        $<$<COMPILE_LANGUAGE:CXX>:-mtune=native>
+    )
+endmacro()
 
 # output to ./bin
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
@@ -42,26 +58,22 @@ file(GLOB TEST_SOURCES "${PROJECT_SOURCE_DIR}/tests/*.cu")
 if(CORE_SOURCES)
     add_library(cuda_kernels_core STATIC ${CORE_SOURCES})
     target_include_directories(cuda_kernels_core PUBLIC ${PROJECT_SOURCE_DIR}/include)
-    target_link_libraries(cuda_kernels_core PRIVATE CUDA::cudart)
+    target_link_libraries(cuda_kernels_core PRIVATE CUDA::cudart cuDNN::cuDNN CUDA::cublas)
+    set_optimization_flags(cuda_kernels_core)
 endif()
 
 # set output
 foreach(test_source IN LISTS TEST_SOURCES)
     get_filename_component(test_name ${test_source} NAME_WE)
     add_executable(${test_name} ${test_source})
-
-    if(TARGET cuda_kernels_core)
-        target_link_libraries(${test_name} PRIVATE cuda_kernels_core)
-    endif()
-
     target_include_directories(${test_name} PRIVATE ${PROJECT_SOURCE_DIR}/include)
-    target_link_libraries(cuda_kernels_core 
-                            PUBLIC cudnn
-                            PRIVATE CUDA::cudart CUDA::cublas)
+    target_link_libraries(${test_name} PRIVATE cuda_kernels_core)
 
     # set arch
     set_target_properties(${test_name} PROPERTIES
         CUDA_ARCHITECTURES "75;80;86;89;90"
         CUDA_SEPARABLE_COMPILATION ON
     )
+    set_optimization_flags(${test_name})
+
 endforeach()
