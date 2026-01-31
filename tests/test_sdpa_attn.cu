@@ -50,40 +50,40 @@ int main(int argc, char** argv)
         v_host[i] = (rand()%255)/255.0;
     }
 
-    CHECK(cudaMalloc((void**)&param.q_ptr, sizeof(float)*b*l_q*d));
-    CHECK(cudaMalloc((void**)&param.k_ptr, sizeof(float)*b*l_kv*d));
-    CHECK(cudaMalloc((void**)&param.v_ptr, sizeof(float)*b*l_kv*d));
-    CHECK(cudaMalloc((void**)&param.o_ptr, sizeof(float)*b*l_q*d));
+    CUDA_CHECK(cudaMalloc((void**)&param.q_ptr, sizeof(float)*b*l_q*d));
+    CUDA_CHECK(cudaMalloc((void**)&param.k_ptr, sizeof(float)*b*l_kv*d));
+    CUDA_CHECK(cudaMalloc((void**)&param.v_ptr, sizeof(float)*b*l_kv*d));
+    CUDA_CHECK(cudaMalloc((void**)&param.o_ptr, sizeof(float)*b*l_q*d));
 
-    CHECK(cudaMemcpy(param.q_ptr, q_host, b*l_q*d, cudaMemcpyHostToDevice));
-    CHECK(cudaMemcpy(param.k_ptr, k_host, b*l_kv*d, cudaMemcpyHostToDevice));
-    CHECK(cudaMemcpy(param.v_ptr, v_host, b*l_kv*d, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(param.q_ptr, q_host, b*l_q*d, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(param.k_ptr, k_host, b*l_kv*d, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(param.v_ptr, v_host, b*l_kv*d, cudaMemcpyHostToDevice));
 
     launch_sdqa_attention_fwd_cublas(param);
-    CHECK(cudaMemcpy(o_host_verify, param.o_ptr, sizeof(float)*b*l_q*d, cudaMemcpyDeviceToHost));
-    CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaMemcpy(o_host_verify, param.o_ptr, sizeof(float)*b*l_q*d, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     cudaEvent_t start, stop;
-    CHECK(cudaEventCreate(&start));
-    CHECK(cudaEventCreate(&stop));
+    CUDA_CHECK(cudaEventCreate(&start));
+    CUDA_CHECK(cudaEventCreate(&stop));
 
-    CHECK(cudaEventRecord(start));
+    CUDA_CHECK(cudaEventRecord(start));
     launch_func(param);
-    CHECK(cudaEventRecord(stop));
+    CUDA_CHECK(cudaEventRecord(stop));
 
     float milliseconds = 0;
-    CHECK(cudaDeviceSynchronize());
-    CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
     printf("Kernel execution time: %.3f ms\n", milliseconds);
-    printf("kernel excution speed: %.3f GFLOPS\n", calcu_gflops(b, l_q, l_kv, d, milliseconds));
-    CHECK(cudaMemcpy(o_host, param.o_ptr,sizeof(float)*b*l_q*d, cudaMemcpyDeviceToHost));
+    printf("Kernel execution speed: %.3f GFLOPS\n", calcu_gflops(b, l_q, l_kv, d, milliseconds));
+    CUDA_CHECK(cudaMemcpy(o_host, param.o_ptr,sizeof(float)*b*l_q*d, cudaMemcpyDeviceToHost));
 
     check_result(b*l_kv*d, o_host, o_host_verify);
 
-    CHECK(cudaFree(param.q_ptr));
-    CHECK(cudaFree(param.k_ptr));
-    CHECK(cudaFree(param.v_ptr));
-    CHECK(cudaFree(param.o_ptr));
+    CUDA_CHECK(cudaFree(param.q_ptr));
+    CUDA_CHECK(cudaFree(param.k_ptr));
+    CUDA_CHECK(cudaFree(param.v_ptr));
+    CUDA_CHECK(cudaFree(param.o_ptr));
 
     free(q_host);
     free(k_host);

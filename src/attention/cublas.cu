@@ -1,62 +1,71 @@
 #include <cublas_v2.h>
-#include <cuda_runtime.h>
-#include <iostream>
-#include <vector>
 
 #include "kernels/attention.h"
-
-#define CHECK_CUDA(call) \
-    do { \
-        cudaError_t err = call; \
-        if (err != cudaSuccess) { \
-            fprintf(stderr, "CUDA error at %s:%d: %s\n", __FILE__, __LINE__, cudaGetErrorString(err)); \
-            exit(EXIT_FAILURE); \
-        } \
-    } while(0)
-
-#define CHECK_CUBLAS(call) \
-    do { \
-        cublasStatus_t status = call; \
-        if (status != CUBLAS_STATUS_SUCCESS) { \
-            fprintf(stderr, "CUBLAS error at %s:%d\n", __FILE__, __LINE__); \
-            exit(EXIT_FAILURE); \
-        } \
-    } while(0)
+#include "common.h"
 
 
 __global__ void softmax_kernel(float* input, int rows, int cols, float scale) {
-    int row = blockIdx.x * blockDim.x + threadIdx.x;
-    if (row >= rows) return;
-    
-    float* row_ptr = input + row * cols;
-    
+    extern __shared__ float shared_data[];
 
-    float max_val = -INFINITY;
-    for (int i = 0; i < cols; i++) {
-        float val = row_ptr[i] * scale;
-        if (val > max_val) max_val = val;
+    int row = blockIdx.x;
+    int tid = threadIdx.x;
+    int col = tid;
+
+    if (row >= rows) return;
+    float* x = input + row * cols;
+
+    // Find max in this row
+    float thread_max = -INFINITY;
+    for (int i = col; i < cols; i += blockDim.x) {
+        thread_max = fmaxf(thread_max, x[i] * scale);
     }
-    
-    float sum = 0.0f;
-    for (int i = 0; i < cols; i++) {
-        float val = expf(row_ptr[i] * scale - max_val);
-        row_ptr[i] = val;
-        sum += val;
+
+    // Reduce max within block
+    shared_data[col] = thread_max;
+    __syncthreads();
+
+    for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+        if (col < stride) {
+            shared_data[col] = fmaxf(shared_data[col], shared_data[col + stride]);
+        }
+        __syncthreads();
     }
-    
-    sum = 1.0f / (sum + 1e-8f);
-    for (int i = 0; i < cols; i++) {
-        row_ptr[i] *= sum;
+    float row_max = shared_data[0];
+    __syncthreads();
+
+    // Compute exp and sum
+    float thread_sum = 0.0f;
+    for (int i = col; i < cols; i += blockDim.x) {
+        float val = __expf(x[i] * scale - row_max);
+        x[i] = val;
+        thread_sum += val;
+    }
+
+    shared_data[col] = thread_sum;
+    __syncthreads();
+
+    for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+        if (col < stride) {
+            shared_data[col] += shared_data[col + stride];
+        }
+        __syncthreads();
+    }
+    float row_sum = shared_data[0];
+    __syncthreads();
+
+    // Normalize
+    float inv_row_sum = 1.0f / (row_sum + 1e-8f);
+    for (int i = col; i < cols; i += blockDim.x) {
+        x[i] *= inv_row_sum;
     }
 }
-
 void launch_sdqa_attention_fwd_cublas(attention_param_t param) {
     cublasHandle_t handle;
-    CHECK_CUBLAS(cublasCreate(&handle));
+    CUBLAS_CHECK(cublasCreate(&handle));
     
     float* d_scores = nullptr;
     size_t scores_size = param.batch * param.len_q * param.len_kv * sizeof(float);
-    CHECK_CUDA(cudaMalloc(&d_scores, scores_size));
+    CUDA_CHECK(cudaMalloc(&d_scores, scores_size));
     
 
     const float alpha = 1.0f;
@@ -71,7 +80,7 @@ void launch_sdqa_attention_fwd_cublas(attention_param_t param) {
     
     // 步骤1: 批处理Q * K^T
 
-    CHECK_CUBLAS(cublasSgemmStridedBatched(
+    CUBLAS_CHECK(cublasSgemmStridedBatched(
         handle,
         CUBLAS_OP_T,    // K需要转置为K^T
         CUBLAS_OP_N,    // Q不转置
@@ -92,21 +101,23 @@ void launch_sdqa_attention_fwd_cublas(attention_param_t param) {
         param.batch     // batch数量
     ));
     
-    // 步骤2: 缩放并应用softmax
-    int threads_per_block = 256;
-    int blocks_per_grid = (param.batch * param.len_q + threads_per_block - 1) / threads_per_block;
-    
-    softmax_kernel<<<blocks_per_grid, threads_per_block>>>(
-        d_scores, 
-        param.batch * param.len_q, 
-        param.len_kv, 
+    const int BLOCK_SIZE = 256;
+    size_t shared_mem_size = BLOCK_SIZE * sizeof(float);
+
+    dim3 grid(param.batch * param.len_q);
+    dim3 block(BLOCK_SIZE);
+
+    softmax_kernel<<<grid, block, shared_mem_size>>>(
+        d_scores,
+        param.batch * param.len_q,
+        param.len_kv,
         param.scale
     );
     
-    CHECK_CUDA(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaDeviceSynchronize());
     
     // 步骤3: 批处理softmax(QK^T) * V
-    CHECK_CUBLAS(cublasSgemmStridedBatched(
+    CUBLAS_CHECK(cublasSgemmStridedBatched(
         handle,
         CUBLAS_OP_N,    // V不转置
         CUBLAS_OP_N,    // scores不转置
@@ -128,6 +139,6 @@ void launch_sdqa_attention_fwd_cublas(attention_param_t param) {
     ));
     
     // 清理
-    CHECK_CUBLAS(cublasDestroy(handle));
-    CHECK_CUDA(cudaFree(d_scores));
+    CUBLAS_CHECK(cublasDestroy(handle));
+    CUDA_CHECK(cudaFree(d_scores));
 }

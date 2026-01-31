@@ -17,9 +17,9 @@ int main(int argc, char** argv)
     dst = (float*)malloc(sizeof(float) * N);
     dst_verify = (float*)malloc(sizeof(float) * N);
 
-    CHECK(cudaMalloc((void**)&param.lhs, sizeof(float) * N));
-    CHECK(cudaMalloc((void**)&param.rhs, sizeof(float) * N));
-    CHECK(cudaMalloc((void**)&param.dst, sizeof(float) * N));
+    CUDA_CHECK(cudaMalloc((void**)&param.lhs, sizeof(float) * N));
+    CUDA_CHECK(cudaMalloc((void**)&param.rhs, sizeof(float) * N));
+    CUDA_CHECK(cudaMalloc((void**)&param.dst, sizeof(float) * N));
     
     unsigned seed = 42;
     srand(seed);
@@ -28,39 +28,39 @@ int main(int argc, char** argv)
         rhs[i] = (rand() % 255) / 256.0f;
     }
 
-    CHECK(cudaMemcpy(param.lhs, lhs, sizeof(float) * N, cudaMemcpyHostToDevice));
-    CHECK(cudaMemcpy(param.rhs, rhs, sizeof(float) * N, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(param.lhs, lhs, sizeof(float) * N, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(param.rhs, rhs, sizeof(float) * N, cudaMemcpyHostToDevice));
 
     // 创建 CUDA 事件
     cudaEvent_t start, stop;
-    CHECK(cudaEventCreate(&start));
-    CHECK(cudaEventCreate(&stop));
+    CUDA_CHECK(cudaEventCreate(&start));
+    CUDA_CHECK(cudaEventCreate(&stop));
 
-    CHECK(cudaEventRecord(start));
+    CUDA_CHECK(cudaEventRecord(start));
     launch_elementwise_mul_vector(param);
-    CHECK(cudaEventRecord(stop));
+    CUDA_CHECK(cudaEventRecord(stop));
 
     float milliseconds = 0;
-    CHECK(cudaDeviceSynchronize())
-    CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
+    CUDA_CHECK(cudaDeviceSynchronize())
+    CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
 
     printf("Kernel execution time: %.3f ms\n", milliseconds);
 
     // 销毁 CUDA 事件
-    CHECK(cudaEventDestroy(start));
-    CHECK(cudaEventDestroy(stop));
+    CUDA_CHECK(cudaEventDestroy(start));
+    CUDA_CHECK(cudaEventDestroy(stop));
 
-    CHECK(cudaMemcpy(dst, param.dst, sizeof(float) * N, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(dst, param.dst, sizeof(float) * N, cudaMemcpyDeviceToHost));
 
     launch_elementwise_mul_verify(param);
-    CHECK(cudaDeviceSynchronize())
+    CUDA_CHECK(cudaDeviceSynchronize())
     
-    CHECK(cudaMemcpy(dst_verify, param.dst, sizeof(float) * N, cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(dst_verify, param.dst, sizeof(float) * N, cudaMemcpyDeviceToHost));
     check_result(N, dst, dst_verify);    
 
-    CHECK(cudaFree(param.lhs));
-    CHECK(cudaFree(param.rhs));
-    CHECK(cudaFree(param.dst));
+    CUDA_CHECK(cudaFree(param.lhs));
+    CUDA_CHECK(cudaFree(param.rhs));
+    CUDA_CHECK(cudaFree(param.dst));
 
     free(lhs);
     free(rhs);

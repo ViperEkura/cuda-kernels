@@ -4,29 +4,41 @@
 #include <driver_types.h>
 #include <stdio.h>
 
-#define CHECK(call)                                                               \
+#define CUDA_CHECK(call)                                                          \
 {                                                                                 \
-    const cudaError_t error = call;                                               \
-    if (error != cudaSuccess)                                                     \
+    const cudaError_t err = call;                                                 \
+    if (err != cudaSuccess)                                                       \
     {                                                                             \
-        printf("Error: %s, Line: %d\n", __FILE__, __LINE__);                      \
-        printf("Error code: %d, Reason: %s\n", error, cudaGetErrorString(error)); \
-        exit(-1);                                                                 \
+        fprintf(stderr, "CUDA Error at %s:%d - Code: %d, Msg: %s\n",              \
+                __FILE__, __LINE__, err, cudaGetErrorString(err));                \
+        exit(EXIT_FAILURE);                                                       \
     }                                                                             \
 }
 
-int check_kernel_launch()
-{
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        fprintf(stderr, "Kernel launch error: %s\n", cudaGetErrorString(err));
-        exit(-1);
-    }
-    return 0;
+#define CUBLAS_CHECK(status)                                                      \
+{                                                                                 \
+    if (status != CUBLAS_STATUS_SUCCESS)                                          \
+    {                                                                             \
+        fprintf(stderr, "cuBLAS Error at %s:%d - Code: %d\n",                     \
+                __FILE__, __LINE__, status);                                      \
+        exit(EXIT_FAILURE);                                                       \
+    }                                                                             \
 }
 
+#define CUDNN_CHECK(status)                                                       \
+{                                                                                 \
+    if (status != CUDNN_STATUS_SUCCESS)                                           \
+    {                                                                             \
+        fprintf(stderr, "cuDNN Error at %s:%d - Code: %d\n",                      \
+                __FILE__, __LINE__, status);                                      \
+        exit(EXIT_FAILURE);                                                       \
+    }                                                                             \
+}
+
+
+
 template<typename _Dtype>
-int check_result(int N, _Dtype* src, _Dtype* tgt){
+int check_result(int N, _Dtype* src, _Dtype* tgt, float eps=1e-5){
     printf("===================start verfiy===================\n");
 
     int error=0;
