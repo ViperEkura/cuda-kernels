@@ -1,7 +1,7 @@
 #include "kernels/attention.h"
 #include "common.h"
 
-void (*launch_func)(attention_param_t) = launch_sdqa_attention_fwd_flash_v1;
+void (*launch_func)(attention_param_t) = launch_sdqa_attention_fwd_native;
 
 float calcu_gflops(float b, float l_q, float l_kv, float d, float ms)
 {
@@ -59,7 +59,7 @@ int main(int argc, char** argv)
     CHECK(cudaMemcpy(param.k_ptr, k_host, b*l_kv*d, cudaMemcpyHostToDevice));
     CHECK(cudaMemcpy(param.v_ptr, v_host, b*l_kv*d, cudaMemcpyHostToDevice));
 
-    launch_sdqa_attention_fwd_native(param);
+    launch_sdqa_attention_fwd_cublas(param);
     CHECK(cudaMemcpy(o_host_verify, param.o_ptr, sizeof(float)*b*l_q*d, cudaMemcpyDeviceToHost));
     CHECK(cudaDeviceSynchronize());
 
