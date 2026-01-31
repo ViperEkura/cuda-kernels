@@ -17,5 +17,5 @@ struct  attention_param_t
 };
 
 void launch_sdqa_attention_fwd_native(attention_param_t param);
-void laucnh_sdqa_attention_fwd_flash_v1(attention_param_t param);
+void launch_sdqa_attention_fwd_flash_v1(attention_param_t param);
 #endif

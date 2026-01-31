@@ -1,6 +1,8 @@
 #include "kernels/attention.h"
 #include "common.h"
 
+void (*launch_func)(attention_param_t) = launch_sdqa_attention_fwd_flash_v1;
+
 float calcu_gflops(float b, float l_q, float l_kv, float d, float ms)
 {
     float total_flops = 0;
@@ -30,6 +32,8 @@ int main(int argc, char** argv)
     param.len_q  = l_q;
     param.len_kv = l_kv;
     param.dim    = d;
+    param.eps    = 1e-5;
+    param.scale  = sqrt(l_kv);
 
     float* q_host = (float*)malloc(sizeof(float)*b*l_q*d);
     float* k_host = (float*)malloc(sizeof(float)*b*l_kv*d);
@@ -55,12 +59,16 @@ int main(int argc, char** argv)
     CHECK(cudaMemcpy(param.k_ptr, k_host, b*l_kv*d, cudaMemcpyHostToDevice));
     CHECK(cudaMemcpy(param.v_ptr, v_host, b*l_kv*d, cudaMemcpyHostToDevice));
 
+    launch_sdqa_attention_fwd_native(param);
+    CHECK(cudaMemcpy(o_host_verify, param.o_ptr, sizeof(float)*b*l_q*d, cudaMemcpyDeviceToHost));
+    CHECK(cudaDeviceSynchronize());
+
     cudaEvent_t start, stop;
     CHECK(cudaEventCreate(&start));
     CHECK(cudaEventCreate(&stop));
 
     CHECK(cudaEventRecord(start));
-    launch_sdqa_attention_fwd_native(param);
+    launch_func(param);
     CHECK(cudaEventRecord(stop));
 
     float milliseconds = 0;
@@ -68,8 +76,9 @@ int main(int argc, char** argv)
     CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
     printf("Kernel execution time: %.3f ms\n", milliseconds);
     printf("kernel excution speed: %.3f GFLOPS\n", calcu_gflops(b, l_q, l_kv, d, milliseconds));
-    CHECK(cudaDeviceSynchronize())
-    CHECK(cudaMemcpy(o_host, param.o_ptr, b*l_q*d, cudaMemcpyDeviceToHost));
+    CHECK(cudaMemcpy(o_host, param.o_ptr,sizeof(float)*b*l_q*d, cudaMemcpyDeviceToHost));
+
+    check_result(b*l_kv*d, o_host, o_host_verify);
 
     CHECK(cudaFree(param.q_ptr));
     CHECK(cudaFree(param.k_ptr));
