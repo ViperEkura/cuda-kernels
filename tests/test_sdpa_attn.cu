@@ -1,7 +1,7 @@
 #include "kernels/attention.h"
 #include "common.h"
 
-void (*launch_func)(attention_param_t) = launch_sdqa_attention_fwd_native;
+void (*launch_func)(attention_param_t) = launch_sdqa_attention_fwd_flash_v1;
 
 float calcu_gflops(float b, float l_q, float l_kv, float d, float ms)
 {
@@ -78,7 +78,7 @@ int main(int argc, char** argv)
     printf("Kernel execution speed: %.3f GFLOPS\n", calcu_gflops(b, l_q, l_kv, d, milliseconds));
     CUDA_CHECK(cudaMemcpy(o_host, param.o_ptr,sizeof(float)*b*l_q*d, cudaMemcpyDeviceToHost));
 
-    check_result(b*l_kv*d, o_host, o_host_verify);
+    check_result(b*l_q*d, o_host, o_host_verify, 1e-3);
 
     CUDA_CHECK(cudaFree(param.q_ptr));
     CUDA_CHECK(cudaFree(param.k_ptr));
