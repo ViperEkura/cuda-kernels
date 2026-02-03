@@ -2,6 +2,7 @@
 
 static constexpr int Bl = 16;
 static constexpr int Bd = 16;
+static constexpr int Offset = 1;
 // Bd >= Bl
 
 __global__ void sdqa_attention_fwd_flash_v1(attention_param_t param)
@@ -23,10 +24,11 @@ __global__ void sdqa_attention_fwd_flash_v1(attention_param_t param)
     const int load_smem_l = ty;
     const int load_smem_d = tx;
 
-    __shared__ float smem_q[Bl][Bd];
-    __shared__ float smem_k[Bl][Bd];
-    __shared__ float smem_v[Bl][Bd];
-    __shared__ float smem_sp[Bl][Bl];
+    __shared__ float smem_q[Bd][Bl + Offset];
+    __shared__ float smem_k[Bd][Bl + Offset];
+    __shared__ float smem_v[Bd][Bl + Offset];
+    __shared__ float smem_s[Bl][Bl + Offset];
+    __shared__ float smem_p[Bl][Bl + Offset];
 
     float row_max = -INFINITY;
     float row_sum = 0;
@@ -40,11 +42,7 @@ __global__ void sdqa_attention_fwd_flash_v1(attention_param_t param)
         {
             int local_q = tid / Bl;
             int local_k = tid % Bl;
-
-            for(int d = 0; d < Bd; d++)
-            {
-                smem_sp[local_q][local_k] = 0;
-            }
+            smem_s[local_q][local_k] = 0;
         }
         __syncthreads();
 
@@ -56,9 +54,9 @@ __global__ void sdqa_attention_fwd_flash_v1(attention_param_t param)
             int load_gmem_q_addr = batch * L_q * D + load_gmem_q_l * D + load_gmem_q_d;
             // load Q, K
             if (load_gmem_q_l < L_q && load_gmem_q_d < D)
-                smem_q[load_smem_l][load_smem_d] = param.q_ptr[load_gmem_q_addr];
+                smem_q[load_smem_d][load_smem_l] = param.q_ptr[load_gmem_q_addr];
             else 
-                smem_q[load_smem_l][load_smem_d] = 0;
+                smem_q[load_smem_d][load_smem_l] = 0;
 
             int load_smem_kv_l = load_smem_l;
             int load_gmem_kv_l = kv_start + load_smem_kv_l;
@@ -66,9 +64,9 @@ __global__ void sdqa_attention_fwd_flash_v1(attention_param_t param)
             int load_gmem_kv_addr = batch * L_kv * D + load_gmem_kv_l * D + load_gmem_kv_d;
             
             if (load_gmem_kv_l < L_kv && load_gmem_kv_d < D)
-                smem_k[load_smem_l][load_smem_d] = param.k_ptr[load_gmem_kv_addr];
+                smem_k[load_smem_d][load_smem_l] = param.k_ptr[load_gmem_kv_addr];
             else
-                smem_k[load_smem_l][load_smem_d] = 0;
+                smem_k[load_smem_d][load_smem_l] = 0;
 
             __syncthreads();
 
@@ -77,10 +75,12 @@ __global__ void sdqa_attention_fwd_flash_v1(attention_param_t param)
             {
                 int local_q = tid / Bl;
                 int local_k = tid % Bl;
+                float local_sum = 0;
                 for(int d = 0; d < Bd; d++)
                 {
-                    smem_sp[local_q][local_k] += smem_q[local_q][d] * smem_k[local_k][d] * scale;
+                    local_sum += smem_q[d][local_q] * smem_k[d][local_k] * scale;
                 }
+                smem_s[local_q][local_k] += local_sum;
             }
             __syncthreads();
         }
@@ -90,23 +90,22 @@ __global__ void sdqa_attention_fwd_flash_v1(attention_param_t param)
         // block_max = max(S, dim=-1)
         for (int  i = 0; i < Bl; i++)
         {
-            block_max = max(block_max, smem_sp[load_smem_l][i]);
+            block_max = max(block_max, smem_s[load_smem_l][i]);
         }
-        __syncthreads();
 
         // P = exp(S - block_max)
         if(tid < Bl * Bl)
         {
             int local_q = tid / Bl;
             int local_k = tid % Bl;
-            smem_sp[local_q][local_k] = exp(smem_sp[local_q][local_k] - block_max);
+            smem_p[local_q][local_k] = exp(smem_s[local_q][local_k] - block_max);
         }
         __syncthreads();
 
         // block_sum = sum(P, dim=-1)
         for (int  i = 0; i < Bl; i++)
         {
-            block_sum += smem_sp[load_smem_l][i];
+            block_sum += smem_p[load_smem_l][i];
         }
 
         float new_max = max(block_max, row_max);
@@ -121,17 +120,16 @@ __global__ void sdqa_attention_fwd_flash_v1(attention_param_t param)
         int load_gmem_kv_addr = batch * L_kv * D + load_gmem_kv_l * D + load_gmem_kv_d;
         
         if (load_gmem_kv_l < L_kv && load_gmem_kv_d < D)
-            smem_v[load_smem_kv_l][load_smem_d] = param.v_ptr[load_gmem_kv_addr];
+            smem_v[load_smem_d][load_smem_kv_l] = param.v_ptr[load_gmem_kv_addr];
         else
-            smem_v[load_smem_kv_l][load_smem_d] = 0;
+            smem_v[load_smem_d][load_smem_kv_l] = 0;
 
         __syncthreads();
         // PV = P @ V
         for(int kv = 0; kv < Bl; kv++)
         {
-            pv += smem_sp[load_smem_l][kv] * smem_v[kv][load_smem_d];
+            pv += smem_p[load_smem_l][kv] * smem_v[load_smem_d][kv];
         }
-        __syncthreads();
         
         // O = O * old_scale + PV * new_scale
         reg_o = reg_o * old_scale + pv * new_scale;
