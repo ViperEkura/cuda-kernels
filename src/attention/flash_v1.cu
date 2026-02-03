@@ -1,4 +1,3 @@
-#include <cooperative_groups.h>
 #include "kernels/attention.h"
 
 static constexpr int Bq = 16;
