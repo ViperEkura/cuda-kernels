@@ -43,7 +43,9 @@ int check_result(int N, _Dtype* src, _Dtype* tgt, float eps=1e-5){
 
     int error=0;
     for(int i=0;i<N; i++){
-        if((fabs(src[i] - tgt[i])) > 0.01 * tgt[i] || isnan(src[i]) || isinf(src[i])){
+        bool has_nan = isnan(src[i]) || isinf(src[i]);
+        bool has_eps = fabs(src[i] - tgt[i]) > eps * fabs(tgt[i]);
+        if(has_eps || has_nan){
             printf("error, postion:%d, src value:%f, tgt value:%f\n", i, src[i], tgt[i]);
             error++;
             break;
