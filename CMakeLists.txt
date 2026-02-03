@@ -6,14 +6,16 @@ set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
+# set arch
+set(CMAKE_CUDA_ARCHITECTURES "80;86;89;90")
+set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
+
 find_package(CUDAToolkit REQUIRED)
 
 macro(set_optimization_flags TARGET_NAME)
     target_compile_options(${TARGET_NAME} PRIVATE
         $<$<COMPILE_LANGUAGE:CUDA>:-O3>
-        $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>
-        $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas>
-        $<$<COMPILE_LANGUAGE:CUDA>:-O3,-v>
+        $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-O3,-v>
         $<$<COMPILE_LANGUAGE:CXX>:-O3>
         $<$<COMPILE_LANGUAGE:CXX>:-march=native>
         $<$<COMPILE_LANGUAGE:CXX>:-mtune=native>
@@ -39,12 +41,5 @@ foreach(test_source IN LISTS TEST_SOURCES)
     add_executable(${test_name} ${test_source})
     target_include_directories(${test_name} PRIVATE ${PROJECT_SOURCE_DIR}/include)
     target_link_libraries(${test_name} PRIVATE cuda_kernels_core)
-
-    # set arch
-    set_target_properties(${test_name} PROPERTIES
-        CUDA_ARCHITECTURES "75;80;86;89;90"
-        CUDA_SEPARABLE_COMPILATION ON
-    )
     set_optimization_flags(${test_name})
-
 endforeach()
