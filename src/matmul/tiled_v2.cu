@@ -77,6 +77,7 @@ __global__ void matmul_tiled_v2(matmul_param_t param)
                 }
             }
         }
+        __syncthreads();
     }
 
     #pragma unroll

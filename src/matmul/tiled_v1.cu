@@ -51,6 +51,7 @@ __global__ void matmul_tiled_v1(matmul_param_t param)
         for (int k = 0; k < TILE_SIZE; k++){
             sum += smem_lhs[load_smem_a_m * TILE_SIZE + k] * smem_rhs[k * TILE_SIZE + load_smem_b_n];
         }
+        __syncthreads();
     }
 
     if (load_gmem_m < M && load_gmem_n < N)
