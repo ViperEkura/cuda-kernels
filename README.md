@@ -1,6 +1,8 @@
 ## cuda-kernels
 
-用于记录cuda 学习， 项目文件结构如下：
+**1.项目结构**
+
+项目文件结构如下：
 
 ```bash
 .
@@ -33,12 +35,13 @@ cmake -S . -B ./build
 make -C ./build
 ```
 
-## 已实现的 CUDA 算子
 
-| 算子 | 头文件 | 实现版本 | 测试文件 | 状态 |
-|------|--------|----------|----------|------|
-| **Attention** | `include/kernels/attention.h` |  cublas<br> flash_v1 | `tests/test_sdpa_attn.cu` | ✅ |
-| **Conv2D** | `include/kernels/conv2d.h` | implgemm<br> winograd | `tests/test_conv2d.cu` | ✅ |
-| **Elementwise Mul** | `include/kernels/elementwise_mul.h` | vector | `tests/test_elementwise_mul.cu` | ✅ |
-| **Matmul** | `include/kernels/matmul.h` |  cublas<br> tiled_dbuf<br> tiled_v1<br> tiled_v2 | `tests/test_matmul.cu` | ✅ |
-| **Softmax** | `include/kernels/softmax.h` | native | `tests/test_softmax.cu` | ✅ |
+**2. 已实现的 CUDA 算子**
+
+| 算子 | 头文件 | 实现版本 | 源码位置 | 测试文件 | 状态 |
+|------|--------|----------|----------|----------|------|
+| **Matmul** | `include/kernels/matmul.h` | cublas<br>mma<br>tiled_v1<br>tiled_v2<br>tiled_dbuf | `src/matmul/cublas.cu`<br>`src/matmul/mma.cu`<br>`src/matmul/tiled_v1.cu`<br>`src/matmul/tiled_v2.cu`<br>`src/matmul/tiled_dbuf.cu` | `tests/test_matmul.cu` | ✅ |
+| **Attention** | `include/kernels/attention.h` | cublas<br>flash_v1 | `src/attention/cublas.cu`<br>`src/attention/flash_v1.cu` | `tests/test_sdpa_attn.cu` | ✅ |
+| **Conv2D** | `include/kernels/conv2d.h` | implgemm<br>winograd | `src/conv2d/im2col_gemm.cu`<br>`src/conv2d/winograd.cu` | `tests/test_conv2d.cu` | ✅ |
+| **Elementwise Mul** | `include/kernels/elementwise_mul.h` | vector | `src/elementwise_mul/vector.cu` | `tests/test_elementwise_mul.cu` | ✅ |
+| **Softmax** | `include/kernels/softmax.h` | native | `src/softmax/native.cu` | `tests/test_softmax.cu` | ✅ |
