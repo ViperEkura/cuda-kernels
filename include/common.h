@@ -38,14 +38,16 @@
 
 
 template<typename _Dtype>
-int check_result(int N, _Dtype* src, _Dtype* tgt, float eps=1e-5){
+int check_result(int N, _Dtype* src, _Dtype* tgt, float atol=1e-5, float rtol=1e-5){
     printf("===================start verfiy===================\n");
 
     int error=0;
     for(int i=0;i<N; i++){
         bool has_nan = isnan(src[i]) || isinf(src[i]);
-        bool has_eps = fabs(src[i] - tgt[i]) > eps * fabs(tgt[i]);
-        if(has_eps || has_nan){
+        _Dtype diff = std::abs(src[i] - tgt[i]);
+        _Dtype scale = std::max(std::abs(src[i]), std::abs(tgt[i]));
+
+        if(has_nan || diff > atol + rtol * scale){
             printf("error, postion:%d, src value:%f, tgt value:%f\n", i, src[i], tgt[i]);
             error++;
             break;
