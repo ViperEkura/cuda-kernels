@@ -20,8 +20,8 @@ __global__ void matmul_wmma(matmul_param_t param)
     const int tile_row = blockIdx.y * WMMA_M;
     const int tile_col = blockIdx.x * WMMA_N;
 
-    __shared__ half A_shared[WMMA_M][WMMA_K];
-    __shared__ half B_shared[WMMA_K][WMMA_N];
+    __shared__ half A_shared[WMMA_M * WMMA_K];
+    __shared__ half B_shared[WMMA_K * WMMA_N];
 
     const int num_tiles_k = (K + WMMA_K - 1) / WMMA_K;
     wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> a_frag;
@@ -33,29 +33,26 @@ __global__ void matmul_wmma(matmul_param_t param)
         const int k_offset = tile_k * WMMA_K;
         
         for (int i = threadIdx.x; i < WMMA_M * WMMA_K; i += blockDim.x) {
-            int row = i / WMMA_K;
-            int col = i % WMMA_K;
-            if (tile_row + row < M && k_offset + col < K) {
-                A_shared[row][col] = __float2half(param.lhs[(tile_row + row) * K + (k_offset + col)]);
+            int row_a = i / WMMA_K;
+            int col_a = i % WMMA_K;
+            if (tile_row + row_a < M && k_offset + col_a < K) {
+                A_shared[i] = __float2half(param.lhs[(tile_row + row_a) * K + (k_offset + col_a)]);
             } else {
-                A_shared[row][col] = __float2half(0.0f);
+                A_shared[i] = __float2half(0.0f);
+            }
+            int row_b = i / WMMA_N;
+            int col_b = i % WMMA_N;
+            if (k_offset + row_b < K && tile_col + col_b < N) {
+                B_shared[i] = __float2half(param.rhs[(k_offset + row_b) * N + (tile_col + col_b)]);
+            } else {
+                B_shared[i] = __float2half(0.0f);
             }
         }
-        
-        for (int i = threadIdx.x; i < WMMA_K * WMMA_N; i += blockDim.x) {
-            int row = i / WMMA_N;
-            int col = i % WMMA_N;
-            if (k_offset + row < K && tile_col + col < N) {
-                B_shared[row][col] = __float2half(param.rhs[(k_offset + row) * N + (tile_col + col)]);
-            } else {
-                B_shared[row][col] = __float2half(0.0f);
-            }
-        }
-        
+
         __syncthreads();
                 
-        wmma::load_matrix_sync(a_frag, &A_shared[0][0], WMMA_K);
-        wmma::load_matrix_sync(b_frag, &B_shared[0][0], WMMA_N);
+        wmma::load_matrix_sync(a_frag, A_shared, WMMA_K);
+        wmma::load_matrix_sync(b_frag, B_shared, WMMA_N);
         wmma::mma_sync(acc_frag, a_frag, b_frag, acc_frag);
 
         __syncthreads();
