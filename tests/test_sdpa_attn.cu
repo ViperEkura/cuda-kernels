@@ -1,7 +1,7 @@
 #include "kernels/attention.h"
 #include "common.h"
 
-void (*launch_func)(attention_param_t) = launch_sdqa_attention_fwd_flash_v1;
+void (*launch_func)(attention_param_t) = launch_sdqa_attention_fwd_flash_v2;
 
 float calcu_gflops(float b, float l_q, float l_kv, float d, float ms)
 {
