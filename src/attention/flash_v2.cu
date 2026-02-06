@@ -49,7 +49,7 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
                     smem_v[load_smem_v] = 0;
             }
             // S = 0
-            for(int kv = 0; kv < Bd; kv++)
+            for(int kv = 0; kv < Bl; kv++)
             {
                 smem_s[kv * Bl + tx] = 0;
             }
