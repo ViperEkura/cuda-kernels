@@ -44,7 +44,7 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
                 int load_smem_v = d * Bl + tx;
                 int load_gmem_v = batch * Lkv * D + (kv_start + tx) * D + (o_d_start + d);
                 if (kv_start + tx < Lkv && o_d_start + d < D)
-                    smem_v[load_smem_v] = param.v_ptr[load_gmem_v];
+                    smem_v[load_smem_v] = __ldg(param.v_ptr + load_gmem_v);
                 else
                     smem_v[load_smem_v] = 0;
             }
@@ -64,7 +64,7 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
                     int load_gmem_q = batch * Lq * D + seq_id * D + (qk_d_start + d);
 
                     if (seq_id < Lq && qk_d_start + d < D)
-                        smem_q[load_smem_q] = param.q_ptr[load_gmem_q];
+                        smem_q[load_smem_q] = __ldg(param.q_ptr + load_gmem_q);
                     else
                         smem_q[load_smem_q] = 0;
 
@@ -72,7 +72,7 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
                     int load_gmem_k = batch * Lkv * D + (kv_start + tx) * D + (qk_d_start + d);
 
                     if (kv_start + tx < Lkv && qk_d_start + d < D)
-                        smem_k[load_smem_k] = param.k_ptr[load_gmem_k];
+                        smem_k[load_smem_k] = __ldg(param.k_ptr + load_gmem_k);
                     else
                         smem_k[load_smem_k] = 0;
                 }
