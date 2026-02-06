@@ -1,6 +1,3 @@
-#ifndef WINOGRAD_CU
-#define WINOGRAD_CU
-
 #include "kernels/conv2d.h"
 
 __device__ void winograd_4x4_3x3(float* g, float* d,  float* o){
@@ -127,5 +124,3 @@ void launch_winograd(conv2d_param_t param){
     dim3 thread(threadx, thready, threadz);
     conv2d_winograd<<<block, thread>>>(param);
 }
-
-#endif

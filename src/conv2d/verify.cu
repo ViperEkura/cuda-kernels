@@ -1,6 +1,3 @@
-#ifndef CONV2D_VERIFY_CU
-#define CONV2D_VERIFY_CU
-
 #include "kernels/conv2d.h"
 
 __global__ void conv2d_verify(conv2d_param_t param){
@@ -78,5 +75,3 @@ void launch_conv2d_verify(conv2d_param_t param){
     dim3 thread(threadx, thready, threadz);
     conv2d_verify<<<block, thread>>>(param);
 }
-
-#endif

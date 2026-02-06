@@ -1,6 +1,3 @@
-#ifndef IMPLGEMM_CU
-#define IMPLGEMM_CU
-
 #include "kernels/conv2d.h"
 
 __global__ void implgemm(conv2d_param_t param)
@@ -271,5 +268,3 @@ void launch_implgemm(conv2d_param_t param)
     dim3 grid(blockx, blocky, blockz);
     implgemm<<<grid, block>>>(param);
 }
-
-#endif

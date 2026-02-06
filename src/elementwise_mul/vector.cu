@@ -1,6 +1,3 @@
-#ifndef ELEMENTWISE_MUL_VECTOR_CU
-#define ELEMENTWISE_MUL_VECTOR_CU
-
 #include "kernels/elementwise_mul.h"
 
 static constexpr int TILE_SIZE = 8;
@@ -35,5 +32,3 @@ void launch_elementwise_mul_vector(elementwise_mul_param_t param)
     
     elementwise_mul_vector<<<block, thread>>>(param);
 }
-
-#endif

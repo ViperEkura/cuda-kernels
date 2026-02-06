@@ -1,6 +1,3 @@
-#ifndef ELEMENTWISE_MUL_VERIFY_CU
-#define ELEMENTWISE_MUL_VERIFY_CU
-
 #include "kernels/elementwise_mul.h"
 
 static constexpr int TILE_SIZE = 8;
@@ -26,5 +23,3 @@ void launch_elementwise_mul_verify(elementwise_mul_param_t param)
     
     elementwise_mul_verify<<<block, thread>>>(param);
 }
-
-#endif
