@@ -43,14 +43,16 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
             {
                 int load_smem_v = d * Bl + tx;
                 int load_gmem_v = batch * Lkv * D + (kv_start + tx) * D + (o_d_start + d);
-                smem_v[load_smem_v] = param.v_ptr[load_gmem_v];
+                if (kv_start + tx < Lkv && o_d_start + d < D)
+                    smem_v[load_smem_v] = param.v_ptr[load_gmem_v];
+                else
+                    smem_v[load_smem_v] = 0;
             }
             // S = 0
-            for(int d = 0; d < Bd; d++)
+            for(int kv = 0; kv < Bd; kv++)
             {
-                smem_s[d * Bl + tx] = 0;
+                smem_s[kv * Bl + tx] = 0;
             }
-             __syncthreads();
 
             for(int qk_d_stride = 0; qk_d_stride < Td; qk_d_stride++)
             {
@@ -94,16 +96,16 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
             float block_sum = 0;
 
             // block_max = max(S, dim=-1)
-            for (int d = 0; d < Bd; d++)
+            for (int kv = 0; kv < Bl; kv++)
             {
-                block_max = max(block_max, smem_s[d * Bl + tx] * param.scale);
+                block_max = max(block_max, smem_s[kv * Bl + tx] * param.scale);
             }
             // P = exp(S - block_max)
             // block_sum = sum(P, dim=-1)
-            for (int d = 0; d < Bd; d++)
+            for (int kv = 0; kv < Bl; kv++)
             {
-                smem_s[d * Bl + tx] = exp(smem_s[d * Bl + tx] * param.scale - block_max);
-                block_sum += smem_s[d * Bl + tx];
+                smem_s[kv * Bl + tx] = exp(smem_s[kv * Bl + tx] * param.scale - block_max);
+                block_sum += smem_s[kv * Bl + tx];
             }
             __syncthreads();
 
@@ -116,10 +118,10 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
             for(int d = 0; d < Bd; d++)
             {
                 reg_pv[d] = 0;
-                for(int bkv = 0; bkv < Bl; bkv++)
+                for(int kv = 0; kv < Bl; kv++)
                 {
-                    int load_smem_p = bkv * Bl + tx;
-                    int load_smem_v = d * Bl + bkv;
+                    int load_smem_p = kv * Bl + tx;
+                    int load_smem_v = d * Bl + kv;
                     reg_pv[d] += smem_s[load_smem_p] * smem_v[load_smem_v];
                 }
             }
@@ -133,7 +135,6 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
             row_sum = row_sum * old_scale + block_sum * new_scale;
             row_max = new_max;
         }
-        
         __syncthreads();
 
         for(int d = 0; d < Bd; d++)
@@ -145,6 +146,7 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
                 param.o_ptr[store_gmem_o] = smem_o[load_smem_o] / row_sum;
             }
         }
+        __syncthreads();
     }
 }
 
