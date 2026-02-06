@@ -15,7 +15,7 @@ find_package(CUDAToolkit REQUIRED)
 macro(set_optimization_flags TARGET_NAME)
     target_compile_options(${TARGET_NAME} PRIVATE
         $<$<COMPILE_LANGUAGE:CUDA>:-O3>
-        $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-O3,-v>
+        $<$<COMPILE_LANGUAGE:CUDA>:-Xptxas=-O3>
         $<$<COMPILE_LANGUAGE:CXX>:-O3>
         $<$<COMPILE_LANGUAGE:CXX>:-march=native>
         $<$<COMPILE_LANGUAGE:CXX>:-mtune=native>
@@ -24,9 +24,13 @@ endmacro()
 
 # output to ./bin
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/bin)
-# set ./src/*.cu as lib
-file(GLOB_RECURSE CORE_SOURCES "${PROJECT_SOURCE_DIR}/src/*.cu")
-file(GLOB TEST_SOURCES "${PROJECT_SOURCE_DIR}/tests/*.cu")
+# set ./src/* as lib
+file(GLOB_RECURSE CORE_SOURCES 
+    "${PROJECT_SOURCE_DIR}/src/*.cu" 
+    "${PROJECT_SOURCE_DIR}/src/*.cpp")
+file(GLOB TEST_SOURCES 
+    "${PROJECT_SOURCE_DIR}/tests/*.cu" 
+    "${PROJECT_SOURCE_DIR}/tests/*.cpp")
 
 if(CORE_SOURCES)
     add_library(cuda_kernels_core STATIC ${CORE_SOURCES})
