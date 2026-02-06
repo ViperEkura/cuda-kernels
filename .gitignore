@@ -1,7 +1,12 @@
-# cmake file
+# vscode
+.vscode/*
 
+# cmake file
 build/*
 bin/*
 
-#prof
+# prof
 *.ncu-rep
+
+# bench
+bench*.py
