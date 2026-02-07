@@ -2,7 +2,7 @@
 
 static constexpr int TILE_SIZE = 16;
 
-__global__ void matmul_verify(matmul_param_t param)
+__global__ void matmul_native(matmul_param_t param)
 {
     float* A = param.lhs;
     float* B = param.rhs;
@@ -29,9 +29,9 @@ __global__ void matmul_verify(matmul_param_t param)
     C[row * N + col] = sum;
 }
 
-void launch_matmul_verify(matmul_param_t param)
+void launch_matmul_native(matmul_param_t param)
 {
     dim3 block(TILE_SIZE, TILE_SIZE);  
     dim3 grid((param.N + TILE_SIZE - 1) / TILE_SIZE, (param.M + TILE_SIZE - 1) / TILE_SIZE);
-    matmul_verify<<<grid, block>>>(param);
+    matmul_native<<<grid, block>>>(param);
 }

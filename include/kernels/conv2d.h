@@ -1,26 +1,27 @@
 #ifndef CONV2D_H
 #define CONV2D_H
 
-struct conv2d_param_t{
-    float*   in;                             //输入数据地址
-    float*   weight;                         //权值数据地址
-    float*   out;                            //输出数据地址
-    unsigned int      n;                              //batch size
-    unsigned int      c;                              //channel number
-    unsigned int      h;                              //数据高
-    unsigned int      w;                              //数据宽
-    unsigned int      k;                              //卷积核数量
-    unsigned int      r;                              //卷积核高
-    unsigned int      s;                              //卷积核宽 
-    unsigned int      u;                              //卷积在高方向上的步长
-    unsigned int      v;                              //卷积在宽方向上的步长
-    unsigned int      p;                              //卷积在高方向上的补边
-    unsigned int      q;                              //卷积在宽方向上的补边
-    unsigned int      Oh;                             //卷积在高方向上输出大小    
-    unsigned int      Ow;                             //卷积在宽方向上输出大小
+// use nchw layout
+struct conv2d_param_t {
+    float* in;               // Input data address 
+    float* weight;           // Weight data address
+    float* out;              // Output data address
+    unsigned int n;          // Batch size
+    unsigned int c;          // Number of input channels
+    unsigned int h;          // Input height
+    unsigned int w;          // Input width
+    unsigned int k;          // Number of filters (output channels)
+    unsigned int r;          // Filter height
+    unsigned int s;          // Filter width
+    unsigned int u;          // Vertical stride (height direction)
+    unsigned int v;          // Horizontal stride (width direction)
+    unsigned int p;          // Vertical padding (height direction)
+    unsigned int q;          // Horizontal padding (width direction)
+    unsigned int Oh;         // Output height
+    unsigned int Ow;         // Output width
 };
 
-void launch_conv2d_verify(conv2d_param_t param);
+void launch_conv2d_native(conv2d_param_t param);
 void launch_implgemm(conv2d_param_t param);
 void launch_winograd(conv2d_param_t param);
 

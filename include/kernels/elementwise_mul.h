@@ -9,7 +9,7 @@ struct elementwise_mul_param_t
     int    N;
 };
 
-void launch_elementwise_mul_verify(elementwise_mul_param_t param);
+void launch_elementwise_mul_native(elementwise_mul_param_t param);
 void launch_elementwise_mul_vector(elementwise_mul_param_t param);
 
 #endif

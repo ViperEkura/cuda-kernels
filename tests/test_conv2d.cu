@@ -3,7 +3,6 @@
 
 
 void (*launch_func)(conv2d_param_t) = launch_implgemm;
-// 选择测试用的启动函数类型
 
 int main(int argc, char**argv){
     int n = atoi(argv[1]);
@@ -73,7 +72,7 @@ int main(int argc, char**argv){
     int paramSize = sizeof(conv2d_param_t);
     /*******************************warm up and get result************************************/
     
-    launch_conv2d_verify(param);
+    launch_conv2d_native(param);
     cudaMemcpy(pOut_verify, pOut_device,  n*k*outh*outw*sizeof(float), cudaMemcpyDeviceToHost);
 
     launch_func(param);

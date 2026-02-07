@@ -1,6 +1,6 @@
 #include "kernels/conv2d.h"
 
-__global__ void conv2d_verify(conv2d_param_t param){
+__global__ void conv2d_native(conv2d_param_t param){
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     int z = blockIdx.z;
@@ -48,7 +48,7 @@ __global__ void conv2d_verify(conv2d_param_t param){
 
 }
 
-void launch_conv2d_verify(conv2d_param_t param){
+void launch_conv2d_native(conv2d_param_t param){
     unsigned int n = param.n;
     //unsigned int c = param.c;
     unsigned int h = param.h;
@@ -73,5 +73,5 @@ void launch_conv2d_verify(conv2d_param_t param){
 
     dim3 block(blockx, blocky, blockz);
     dim3 thread(threadx, thready, threadz);
-    conv2d_verify<<<block, thread>>>(param);
+    conv2d_native<<<block, thread>>>(param);
 }

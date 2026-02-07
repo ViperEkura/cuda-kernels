@@ -2,7 +2,7 @@
 
 static constexpr int TILE_SIZE = 8;
 
-__global__ void elementwise_mul_verify(elementwise_mul_param_t param)
+__global__ void elementwise_mul_native(elementwise_mul_param_t param)
 {
     int tx = threadIdx.x;
     int bx = blockIdx.x;
@@ -15,11 +15,11 @@ __global__ void elementwise_mul_verify(elementwise_mul_param_t param)
     }
 }
 
-void launch_elementwise_mul_verify(elementwise_mul_param_t param)
+void launch_elementwise_mul_native(elementwise_mul_param_t param)
 {
     int thread = 32;
     int seg_size = TILE_SIZE * thread;
     int block = (param.N + seg_size - 1) / seg_size;
     
-    elementwise_mul_verify<<<block, thread>>>(param);
+    elementwise_mul_native<<<block, thread>>>(param);
 }

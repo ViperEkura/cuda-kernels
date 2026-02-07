@@ -31,7 +31,6 @@ int main(int argc, char** argv)
     CUDA_CHECK(cudaMemcpy(param.lhs, lhs, sizeof(float) * N, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(param.rhs, rhs, sizeof(float) * N, cudaMemcpyHostToDevice));
 
-    // 创建 CUDA 事件
     cudaEvent_t start, stop;
     CUDA_CHECK(cudaEventCreate(&start));
     CUDA_CHECK(cudaEventCreate(&stop));
@@ -46,13 +45,12 @@ int main(int argc, char** argv)
 
     printf("Kernel execution time: %.3f ms\n", milliseconds);
 
-    // 销毁 CUDA 事件
     CUDA_CHECK(cudaEventDestroy(start));
     CUDA_CHECK(cudaEventDestroy(stop));
 
     CUDA_CHECK(cudaMemcpy(dst, param.dst, sizeof(float) * N, cudaMemcpyDeviceToHost));
 
-    launch_elementwise_mul_verify(param);
+    launch_elementwise_mul_native(param);
     CUDA_CHECK(cudaDeviceSynchronize())
     
     CUDA_CHECK(cudaMemcpy(dst_verify, param.dst, sizeof(float) * N, cudaMemcpyDeviceToHost));
