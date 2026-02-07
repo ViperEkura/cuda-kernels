@@ -2,161 +2,121 @@
 
 **1.公式**
 
+注意力机制是现代深度学习的核心组件之一，特别是Transformer架构的成功，使注意力机制成为自然语言处理、计算机视觉和多模态领域的基础算子。然而，标准的注意力计算存在显著的计算瓶颈和内存访问问题，限制了模型规模和训练效率。
+
+常见的缩放点积实现方式如下：
+
 $$
 \begin{aligned}
-p_{m, n} &= \text{softmax}\left(\sum_d q_{m, d} k_{n, d} s\right) \newline
-         &= \frac{\exp\left(\sum_d  q_{m, d} k_{n, d}s\right)}{\sum_n \exp\left(\sum_d  q_{m, d} k_{n, d} s\right)} \newline
-\newline
-o_{m, d} &= \sum_n p_{m, n} v_{n, d} \newline
-         &= \sum_n \frac{\exp\left(\sum_d q_{m, d} k_{n, d}s\right)}{\sum_n \exp\left(\sum_d q_{m, d} k_{n, d} s\right)} v_{n, d}
+S_{ij} &= \frac{Q_iK_j}{\sqrt{d_k}} \newline
+P_{ij} &= \frac{\text{exp}(S_{ij})}{\sum_{n=1}^{N}\text{exp}(S_{ij})} \newline
+O_{id} &= PV \newline
+where &\quad Q \in \mathbb{R}^{M \times d} \quad K, V \in \mathbb{R}^{N \times d}
 \end{aligned}
 $$
 
-则对于计算单个输出
+在做算子优化的时候， 需要分清楚这个算子是compute bound 还是 memory bound， 另外还需要考虑到GPU 的分级内存结构， 我们通常使用算数强度进行分析，其中算数强度（Arithmetic Intensity）是指在一个计算过程中，每从内存中搬运1字节数据，所执行的浮点运算次数，对于原始实现的数学计算强度分析如下：
+
+对于计算强度：
+
+1. $S = \frac{QK^T}{\sqrt{d_k}}$ : $2MNd$ FLOPS
+2. $P = \text{softmax}(S)$ : $5MN$ FLOPS
+3. $O = PV$ : $2MNd$ FLOPS
+
+总计算强度为 $4MNd + 5MN$ FLOPs
+
+对于内存访问数量, 假设 FP32 精度：
+
+1. 读取$Q, K$: $4 \times (Md + Nd)$
+2. 写回$S$: $4 \times MN$
+3. 读取$S$: $4 \times MN$
+4. 写回$P$: $4 \times MN$
+5. 读取$P, V$: $4 \times (MN + Nd)$
+6. 写回$O$: $4 \times Md$
+
+总访问量为 $4 \times (2Md + 2Nd + 4MN)$
+
+求得算数强度的表达式为： 
+
+$AI = \frac{FLOPs}{Bytes} = \frac{4MNd + 5MN}{4 \times (2Md + 2Nd + 4MN)}$, 
+
+我们选用一个比较常见的训练参数 $M = N = 2048, d = 64$ 
+计算得到$AI = \frac{1103929344}{ 69206016} = 15.95 \text{FLOPs}/\text{Byte}$
+
+而对比之下， 对于矩阵乘法而言， 当三个个维度相同时并使用FP32精度， 其计算强度为 $\frac{M}{6}$, 以 $M = 1024$ 为例
+计算得到 $AI = \frac{1024}{6} = 170.67 \text{FLOPs}/\text{Byte}$, 相对而言计算强度更大。
+
+所以就数学上分析而言，attention 算子是属于memory bound 的一类， 需要对访存进行优化并且高效地存储中间值， 通过引入 OnlineSoftmax 机制， 我们可以高效地解决这一问题。传统的Softmax 计算分为三步，分别是求的指数最大值，计算指数和， 归一化， 其中不管如何都会有两次读取输入参数，并且从HBM中读取而不是从SRAM中读取。
+Online softmax 是分块计算指数和并且动态更新输出，最后除以迭代后的指数和， 从而只用读取一次HBM， 节省访问。
+
+
+由此分析得到 flash attention 融合版本：
 
 $$
-o = \sum_n \frac{exp(\sum_d q_{d} k_{n, d}s)}{\sum_n exp(\sum_d q_{d} k_{n, d} s)} v_{n} \newline
+\begin{aligned}
+&\textbf{Input: } \mathbf{Q}, \mathbf{K}, \mathbf{V} \in \mathbb{R}^{N \times d}, \text{ block sizes } B_c, B_r \newline
+&\textbf{for } i = 1 \text{ to } T_r = \lceil N / B_r \rceil \textbf{ do} \newline
+&\quad \text{Load } \mathbf{Q}_i \text{ into SRAM} \newline
+&\quad \mathbf{O}_i \gets \mathbf{0},\ \ell_i \gets 0,\ m_i \gets -\infty \newline
+&\quad \textbf{for } j = 1 \text{ to } T_c = \lceil N / B_c \rceil \textbf{ do} \newline
+&\quad\quad \text{Load } \mathbf{K}_j, \mathbf{V}_j \newline
+&\quad\quad \mathbf{S} \gets \mathbf{Q}_i \mathbf{K}_j^\top \newline
+&\quad\quad m_i^{\text{new}} \gets \max(m_i, \text{rowmax}(\mathbf{S})) \newline
+&\quad\quad \tilde{\mathbf{P}} \gets \exp(\mathbf{S} - m_i^{\text{new}}) \newline
+&\quad\quad \ell_i \gets e^{m_i - m_i^{\text{new}}} \ell_i + \text{rowsum}(\tilde{\mathbf{P}}) \newline
+&\quad\quad \mathbf{O}_i \gets e^{m_i - m_i^{\text{new}}} \mathbf{O}_i + \tilde{\mathbf{P}} \mathbf{V}_j \newline
+&\quad\quad m_i \gets m_i^{\text{new}} \newline
+&\quad \textbf{end for} \newline
+&\quad \mathbf{O}_i \gets \mathbf{O}_i / \ell_i \newline
+&\quad L_i \gets m_i + \log(\ell_i) \newline
+&\textbf{end for}
+\end{aligned}
 $$
 
-
-**2.伪代码**
-
-对于最简单的实现，在基础的q长度for循环内部还需要四个for 循环 进行实现, 大致全局内存访问次数为 2MND
+**2. 伪代码**
 
 ```python
-for m in range(M):
-    score = tensor(N)
-    weight = tensor(N)
-    output = tensor(D) 
-    # 1. 计算点积
-    for n in range(N):
-        dot = 0
-        for d in range(D):
-            dot += Q[m, d] * K[n, d]
-     	scores[n] = exp(scale * dot)
-    
-    # 2. 计算分母（softmax归一化）
-    denominator = 0
-    for n in range(N):
-        denominator += exp(scores[n])
-    
-    # 3. 归一化得到权重
-    for n in range(N):
-        weights[n] = exp(scores[n]) / denominator
-    
-    # 4. 计算输出
-    for n in range(N):
-    	for d in range(D):
-            output[d] += weights[n] * V[n, d]
+# Q: [M, d]               # Query
+# K: [N, d]               # Key
+# V: [N, d]               # Value
+# scale = 1.0 / sqrt(d)   # scale factor
+
+Br = block_size_q
+Bc = block_size_kv
+Tr = ceil(M / Br)
+Tc = ceil(N / Bc)
+
+for q_block_idx in range(Tr):
+    m_prev = tensor((Br,), fill=-inf)
+    l_prev = tensor((Br,), fill=0.0)
+    O_acc  = tensor((Br, d), fill=0.0)
+
+    for kv_block_idx in range(Tc):
+        q_start = q_block_idx * Br
+        k_start = kv_block_idx * Bc
+
+        Q_tile = Q[batch_idx, head_idx, q_start:q_start+Br, :]   # (Br, d)
+        K_tile = K[batch_idx, head_idx, k_start:k_start+Bc, :]   # (Bc, d)
+        V_tile = V[batch_idx, head_idx, k_start:k_start+Bc, :]   # (Bc, d)
+
+        S_tile = scale * (Q_tile @ K_tile.T)  # (Br, Bc)
+
+        m_j = max(S_tile, dim=-1)             # (Br,)
+        P_j = exp(S_tile - m_j[:, None])      # (Br, Bc)
+        l_j = sum(P_j, dim=1)                 # (Br,)
+
+        m_new = maximum(m_prev, m_j)          # (Br,)
+        l_new = exp(m_prev - m_new) * l_prev + exp(m_j - m_new) * l_j  # (Br,)
+
+        scale_old = exp(m_prev - m_new)[:, None]  # (Br, 1)
+        scale_new = exp(m_j - m_new)[:, None]     # (Br, 1)
+        O_acc = scale_old * O_acc + scale_new * (P_j @ V_tile)  # (Br, d)
+
+        m_prev = m_new
+        l_prev = l_new
+
+
+        O_block = O_acc / l_prev[:, None]  # (Br, d)
+        O[batch_idx, head_idx, q_start:q_start+Br, :] = O_block
 ```
 
-为了维持数值稳定性和融合计算， 可以使用online softmax 进行加速， 从而将对全局内存的访问降低到MND, 这一版本为native 版本
-
-```python
-# 完全融合版本 - 减少内存访问
-for m in range(M):
-    max_score = -inf
-    denominator = 0
-    output_row = tensor(D)
-    
-    # 单次遍历N，完全融合计算
-    for n in range(N):
-        # 1. 计算点积
-        dot = 0
-        for d in range(D):
-            dot += Q[m, d] * K[n, d]
-        
-        scaled_dot = scale * dot
-        
-        # 2. 更新最大值（用于数值稳定）
-        if scaled_dot > max_score:
-            # 需要重新调整之前的计算结果
-            if n > 0:
-                rescale = exp(max_score - scaled_dot)
-                denominator *= rescale
-                for d in range(D):
-                    output_row[d] *= rescale
-            max_score = scaled_dot
-        
-        # 3. 计算当前项的贡献
-        exp_val = exp(scaled_dot - max_score)
-        denominator += exp_val
-        
-        # 4. 立即累加到输出（融合权重计算和累加）
-        weight = exp_val  # 先不除以denominator，最后统一除
-        for d in range(D):
-            output_row[d] += weight * V[n, d]
-    
-    # 最后统一归一化
-    for d in range(D):
-        output[m, d] = output_row[d] / denominator
-```
-
-另外， 为了使用共享显存，可以对当前计算进行分块， 沿着KV 维度进行 online softmax
-
-```python
-def flash_attention(Q, K, V, M=None, eps=1e-5):
-    N, d = Q.shape
-    device = Q.device
-    
-    # 计算块大小
-    B_c = math.ceil(M / (4 * d))  # K, V块的序列长度
-    B_r = min(math.ceil(M / (4 * d)), d)  # Q块的序列长度
-    
-    # 2. 在HBM中初始化输出和中间状态
-    O = torch.zeros(N, d, device=device)  # 输出矩阵
-    l = torch.zeros(N, device=device)     # 分母累加器
-    m = torch.full((N,), -float('inf'), device=device)  # 最大值记录器
-    
-    # 3. 分块
-    T_r = math.ceil(N / B_r)  # Q的块数
-    T_c = math.ceil(N / B_c)  # K, V的块数
-    
-    # 4. 外层循环：遍历K, V块
-    for j in range(T_c):
-        # 6. 加载K_j, V_j到SRAM
-        K_start = j * B_c
-        K_end = min(K_start + B_c, N)
-        K_j = K[K_start:K_end, :]  # [B_c, d]
-        V_j = V[K_start:K_end, :]  # [B_c, d]
-        
-        # 7. 内层循环：遍历Q块
-        for i in range(T_r):
-            Q_start = i * B_r
-            Q_end = min(Q_start + B_r, N)
-            
-            # 8. 加载Q_i, O_i, l_i, m_i到SRAM
-            Q_i = Q[Q_start:Q_end, :]  # [B_r, d]
-            l_i = l[Q_start:Q_end]     # [B_r]
-            m_i = m[Q_start:Q_end]     # [B_r]
-            
-            # 9. 在片上计算S_{ij} = Q_i @ K_j^T
-            S_ij = torch.matmul(Q_i, K_j.T)  # [B_r, B_c]
-            
-            # 10. 计算当前块的softmax统计量
-            m_ij_tilde = torch.max(S_ij, dim=1).values  # [B_r] 行最大值
-            P_ij_tilde = torch.exp(S_ij - m_ij_tilde.unsqueeze(1))  # [B_r, B_c]
-            l_ij_tilde = torch.sum(P_ij_tilde, dim=1)  # [B_r] 行和
-            
-            # 11. 更新全局softmax统计量
-            m_i_new = torch.maximum(m_i, m_ij_tilde)  # [B_r]
-            
-            # 计算缩放因子
-            scale_old = torch.exp(m_i - m_i_new)  # [B_r]
-            scale_new = torch.exp(m_ij_tilde - m_i_new)  # [B_r]
-            l_i_new = scale_old * l_i + scale_new * l_ij_tilde  # [B_r]
-            
-            # 12. 更新输出
-            PV = P_ij_tilde @ V_j
-            O[Q_start:Q_end, :] = O[Q_start:Q_end, :] * scale_old + PV * scale_new
-
-
-            l[Q_start:Q_end] = l_i_new
-            m[Q_start:Q_end] = m_i_new
-    
-
-    O =  O / (l + eps)
-    
-    return O
-
-```
