@@ -27,12 +27,12 @@ $$
 
 对于内存访问数量, 假设 FP32 精度：
 
-1. 读取$Q, K$: $4 \times (Md + Nd)$
-2. 写回$S$: $4 \times MN$
-3. 读取$S$: $4 \times MN$
-4. 写回$P$: $4 \times MN$
-5. 读取$P, V$: $4 \times (MN + Nd)$
-6. 写回$O$: $4 \times Md$
+1. 读取 $Q, K$ : $4 \times (Md + Nd)$
+2. 写回 $S$ : $4 \times MN$
+3. 读取 $S$ : $4 \times MN$
+4. 写回 $P$ : $4 \times MN$
+5. 读取 $P, V$ : $4 \times (MN + Nd)$
+6. 写回 $O$ : $4 \times Md$
 
 总访问量为 $4 \times (2Md + 2Nd + 4MN)$
 
@@ -41,7 +41,7 @@ $$
 $AI = \frac{FLOPs}{Bytes} = \frac{4MNd + 5MN}{4 \times (2Md + 2Nd + 4MN)}$, 
 
 我们选用一个比较常见的训练参数 $M = N = 2048, d = 64$ 
-计算得到$AI = \frac{1103929344}{ 69206016} = 15.95 \text{FLOPs}/\text{Byte}$
+计算得到 $AI = \frac{1103929344}{69206016} = 15.95 \text{FLOPs} / \text{Byte}$
 
 而对比之下， 对于矩阵乘法而言， 当三个个维度相同时并使用FP32精度， 其计算强度为 $\frac{M}{6}$, 以 $M = 1024$ 为例
 计算得到 $AI = \frac{1024}{6} = 170.67 \text{FLOPs}/\text{Byte}$, 相对而言计算强度更大。
