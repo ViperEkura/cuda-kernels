@@ -7,7 +7,7 @@ static constexpr int TM = 8, TN = 8;
 static constexpr int THREAD_NUM = (BM / TM) * (BN / TN);
 static constexpr int MEM_PER_THRED_LHS = (BM * BK) / THREAD_NUM;
 static constexpr int MEM_PER_THRED_RHS = (BN * BK) / THREAD_NUM;
-
+#define SWIZZLE_BANK(x) ((x) ^ ((x) >> 3))
 
 __global__ void matmul_tiled_dbuf(matmul_param_t param)
 {
@@ -51,17 +51,17 @@ __global__ void matmul_tiled_dbuf(matmul_param_t param)
     #pragma unroll
         for(int k = 0; k < MEM_PER_THRED_LHS; k++){
             if(load_gmem_a_m < M && (load_gmem_a_k + k) < K) {
-                lhs[fetch_flag][load_smem_a_k + k][load_smem_a_m] = param.lhs[load_gmem_a_addr + k];
+                lhs[fetch_flag][load_smem_a_k + k][SWIZZLE_BANK(load_smem_a_m)] = param.lhs[load_gmem_a_addr + k];
             } else {
-                lhs[fetch_flag][load_smem_a_k + k][load_smem_a_m] = 0.0f;
+                lhs[fetch_flag][load_smem_a_k + k][SWIZZLE_BANK(load_smem_a_m)] = 0.0f;
             }
         }
     #pragma unroll
         for(int n = 0; n < MEM_PER_THRED_RHS; n++){
             if(load_gmem_b_k < K && (load_gmem_b_n + n) < N) {
-                rhs[fetch_flag][load_smem_b_k][load_smem_b_n + n] = param.rhs[load_gmem_b_addr + n];
+                rhs[fetch_flag][load_smem_b_k][SWIZZLE_BANK(load_smem_b_n + n)] = param.rhs[load_gmem_b_addr + n];
             } else {
-                rhs[fetch_flag][load_smem_b_k][load_smem_b_n + n] = 0.0f;
+                rhs[fetch_flag][load_smem_b_k][SWIZZLE_BANK(load_smem_b_n + n)] = 0.0f;
             }
         }
     }
@@ -81,18 +81,17 @@ __global__ void matmul_tiled_dbuf(matmul_param_t param)
     #pragma unroll
         for(int k = 0; k < MEM_PER_THRED_LHS; k++){
             if(load_gmem_a_m < M && (load_gmem_a_k + k) < K) {
-                lhs[fetch_flag][load_smem_a_k + k][load_smem_a_m] = param.lhs[load_gmem_a_addr + k];
+                lhs[fetch_flag][load_smem_a_k + k][SWIZZLE_BANK(load_smem_a_m)] = param.lhs[load_gmem_a_addr + k];
             } else {
-                lhs[fetch_flag][load_smem_a_k + k][load_smem_a_m] = 0.0f;
+                lhs[fetch_flag][load_smem_a_k + k][SWIZZLE_BANK(load_smem_a_m)] = 0.0f;
             }
         }
-
     #pragma unroll
         for(int n = 0; n < MEM_PER_THRED_RHS; n++){
             if(load_gmem_b_k < K && (load_gmem_b_n + n) < N) {
-                rhs[fetch_flag][load_smem_b_k][load_smem_b_n + n] = param.rhs[load_gmem_b_addr + n];
+                rhs[fetch_flag][load_smem_b_k][SWIZZLE_BANK(load_smem_b_n + n)] = param.rhs[load_gmem_b_addr + n];
             } else {
-                rhs[fetch_flag][load_smem_b_k][load_smem_b_n + n] = 0.0f;
+                rhs[fetch_flag][load_smem_b_k][SWIZZLE_BANK(load_smem_b_n + n)] = 0.0f;
             }
         }
 
@@ -105,7 +104,7 @@ __global__ void matmul_tiled_dbuf(matmul_param_t param)
                 for(int n = 0; n < TN; n++){
                     int store_smem_a_m = ty * TM + m;
                     int store_smem_b_n = tx * TN + n;
-                    dst[m][n] += lhs[compute_flag][k][store_smem_a_m] * rhs[compute_flag][k][store_smem_b_n];
+                    dst[m][n] += lhs[compute_flag][k][SWIZZLE_BANK(store_smem_a_m)] * rhs[compute_flag][k][SWIZZLE_BANK(store_smem_b_n)];
                 }
             }
         }
@@ -123,7 +122,7 @@ __global__ void matmul_tiled_dbuf(matmul_param_t param)
             for(int n = 0; n < TN; n++){
                 int store_smem_a_m = ty * TM + m;
                 int store_smem_b_n = tx * TN + n;
-                dst[m][n] += lhs[compute_flag][k][store_smem_a_m] * rhs[compute_flag][k][store_smem_b_n];
+                dst[m][n] += lhs[compute_flag][k][SWIZZLE_BANK(store_smem_a_m)] * rhs[compute_flag][k][SWIZZLE_BANK(store_smem_b_n)];
             }
         }
     }
