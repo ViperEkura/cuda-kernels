@@ -6,44 +6,45 @@ static constexpr int Bd = 256;
 
 __global__ void softmax_native(softmax_param_t param)
 {
+    int chunks = param.outer_size * param.inner_size;
     int chunk_id = blockIdx.x * blockDim.x + threadIdx.x;
-    int base_idx = chunk_id * param.softmax_stride * param.softmax_size;
+
+    if (chunk_id > chunks) return;
+
+    int outer_id = chunk_id / param.inner_size;
+    int inner_id = chunk_id % param.inner_size;
+    int offset = outer_id * param.inner_size * param.softmax_size + inner_id;
 
     float max_val = -INFINITY;
-    double exp_sum_val = 0;
-
-    if (base_idx >= param.total_size) return;
+    float exp_sum_val = 0;
 
     // find max
     for (int i = 0; i < param.softmax_size; i++)
     {
-        int idx = base_idx + i * param.softmax_stride;
-        max_val = fmaxf(max_val, param.src[idx]);
+        max_val = max(max_val, param.src[offset + i * param.inner_size]);
     }
 
-    // exp
+    // calcu exp
     for (int i = 0; i < param.softmax_size; i++)
     {
-        int idx = base_idx + i * param.softmax_stride;
-        exp_sum_val += __expf(param.src[idx] - max_val);
+        exp_sum_val += exp(param.src[offset + i * param.inner_size] - max_val);
     }
-
-    //reduce
-    float inv_sum = 1.0f / exp_sum_val;
-    for(int i = 0; i < param.softmax_size; i++)
+    
+    // write back
+    float inv_exp_sum_val = 1 / exp_sum_val;
+    for (int i = 0; i < param.softmax_size; i++)
     {
-        int idx = base_idx + i * param.softmax_stride;
-        param.dst[idx] = __expf(param.src[idx] - max_val) * inv_sum;
+        float res = exp(param.src[offset + i * param.inner_size] - max_val) * inv_exp_sum_val;
+        param.dst[offset + i * param.inner_size] = res;
     }
 }
 
 
 void launch_softmax_native(softmax_param_t param)
 {
-    int chunks = param.total_size / (param.softmax_size * param.softmax_stride);
-
-    dim3 block(Bd);
-    dim3 grid((chunks + Bd - 1) / Bd);
-    softmax_native<<<grid, block>>>(param);
+    int threads = Bd;
+    int chunks = param.outer_size * param.inner_size;
+    int blocks = (chunks + threads - 1) / threads;
+    softmax_native<<<blocks, threads>>>(param);
 
 }

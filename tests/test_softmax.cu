@@ -1,7 +1,7 @@
 #include "kernels/softmax.h"
 #include "common.h"
 
-void (*launch_func)(softmax_param_t) = launch_softmax_native;
+void (*launch_func)(softmax_param_t) = launch_softmax_smem;
 
 float calcu_gflops(float size, float ms)
 {
@@ -9,16 +9,17 @@ float calcu_gflops(float size, float ms)
 }
 
 int main(int argc, char** argv){
-    int size   = atoi(argv[1]);
+    int outer  = atoi(argv[1]);
     int dim    = atoi(argv[2]);
-    int stride = atoi(argv[3]);
+    int inner  = atoi(argv[3]);
     int seed   = 42;
 
     softmax_param_t param;
-    param.total_size     = size;
-    param.softmax_size   = dim;
-    param.softmax_stride = stride;
+    param.outer_size = outer;
+    param.softmax_size = dim;
+    param.inner_size = inner;
 
+    int size = outer * dim * inner;
     float* src = (float*)malloc(size * sizeof(float));
     float* dst = (float*)malloc(size * sizeof(float));
     float* dst_verify = (float*)malloc(size * sizeof(float));
@@ -53,7 +54,7 @@ int main(int argc, char** argv){
     printf("Kernel execution time: %.3f ms\n", milliseconds);
     printf("Kernel execution speed: %.3f GFLOPS\n", calcu_gflops(size, milliseconds));
 
-    check_result(size, dst, dst_verify, 1e-5, 1e-4);
+    check_result(size, dst, dst_verify);
     
     cudaFree(param.src);
     cudaFree(param.dst);

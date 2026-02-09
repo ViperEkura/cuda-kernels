@@ -5,25 +5,14 @@ struct softmax_param_t
 {
     float* src;
     float* dst;
-    int    total_size;
-    int    softmax_size;
-    int    softmax_stride;
+    int    outer_size;      // number of elements before the dim dimension
+    int    softmax_size;    // length of the softmax dimension
+    int    inner_size;      // number of elements after the dim dimension
 };
+// total_size = outer_size * softmax_size * inner_size
 
-/*
-    [N, C, H, W], reduce on C
-    softmax_size = C
-    softmax_stride = H * W
-    total_size = N * C * H * W
-
-    [N, d] reduce on d
-    softmax_size = d
-    softmax_stride = 1
-    total_size = N * d
-
-    chunks = total_size / softmax_stride
-*/
 
 void launch_softmax_native(softmax_param_t param);
+void launch_softmax_smem(softmax_param_t param);
 
 #endif
