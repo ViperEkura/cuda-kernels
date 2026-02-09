@@ -10,12 +10,14 @@ float calcu_gflops(float size, float ms)
 
 int main(int argc, char** argv){
     int size   = atoi(argv[1]);
-    int stride = atoi(argv[2]);
+    int dim    = atoi(argv[2]);
+    int stride = atoi(argv[3]);
     int seed   = 42;
 
     softmax_param_t param;
-    param.size   = size;
-    param.stride = stride;
+    param.total_size     = size;
+    param.softmax_size   = dim;
+    param.softmax_stride = stride;
 
     float* src = (float*)malloc(size * sizeof(float));
     float* dst = (float*)malloc(size * sizeof(float));
@@ -33,7 +35,8 @@ int main(int argc, char** argv){
 
     launch_softmax_native(param);
     CUDA_CHECK(cudaMemcpy(dst_verify, param.dst, size * sizeof(float), cudaMemcpyDeviceToHost));
-
+    CUDA_CHECK(cudaDeviceSynchronize());
+    
     cudaEvent_t start, stop;
     CUDA_CHECK(cudaEventCreate(&start));
     CUDA_CHECK(cudaEventCreate(&stop));
@@ -50,7 +53,7 @@ int main(int argc, char** argv){
     printf("Kernel execution time: %.3f ms\n", milliseconds);
     printf("Kernel execution speed: %.3f GFLOPS\n", calcu_gflops(size, milliseconds));
 
-    check_result(size, dst, dst_verify);
+    check_result(size, dst, dst_verify, 1e-5, 1e-4);
     
     cudaFree(param.src);
     cudaFree(param.dst);
