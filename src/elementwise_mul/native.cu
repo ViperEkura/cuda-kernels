@@ -1,6 +1,7 @@
 #include "kernels/elementwise_mul.h"
 
-static constexpr int TILE_SIZE = 8;
+static constexpr int THRED = 128;
+static constexpr int TILE_SIZE = 32;
 
 __global__ void elementwise_mul_native(elementwise_mul_param_t param)
 {
@@ -17,9 +18,7 @@ __global__ void elementwise_mul_native(elementwise_mul_param_t param)
 
 void launch_elementwise_mul_native(elementwise_mul_param_t param)
 {
-    int thread = 32;
-    int seg_size = TILE_SIZE * thread;
+    int seg_size = TILE_SIZE * THRED;
     int block = (param.N + seg_size - 1) / seg_size;
-    
-    elementwise_mul_native<<<block, thread>>>(param);
+    elementwise_mul_native<<<block, THRED>>>(param);
 }

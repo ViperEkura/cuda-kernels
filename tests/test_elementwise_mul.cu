@@ -2,7 +2,12 @@
 #include "common.h"
 
 
-void (*launch_func)(elementwise_mul_param_t) = launch_elementwise_mul_vector;
+void (*launch_func)(elementwise_mul_param_t) = launch_elementwise_mul_native;
+
+float calcu_gflops(float n, float ms)
+{
+    return n / (ms * 1e6);
+}
 
 int main(int argc, char** argv)
 {
@@ -31,6 +36,10 @@ int main(int argc, char** argv)
     CUDA_CHECK(cudaMemcpy(param.lhs, lhs, sizeof(float) * N, cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(param.rhs, rhs, sizeof(float) * N, cudaMemcpyHostToDevice));
 
+    launch_elementwise_mul_native(param);
+    CUDA_CHECK(cudaDeviceSynchronize())
+    CUDA_CHECK(cudaMemcpy(dst_verify, param.dst, sizeof(float) * N, cudaMemcpyDeviceToHost));
+
     cudaEvent_t start, stop;
     CUDA_CHECK(cudaEventCreate(&start));
     CUDA_CHECK(cudaEventCreate(&stop));
@@ -43,17 +52,15 @@ int main(int argc, char** argv)
     CUDA_CHECK(cudaDeviceSynchronize())
     CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
 
-    printf("Kernel execution time: %.3f ms\n", milliseconds);
 
     CUDA_CHECK(cudaEventDestroy(start));
     CUDA_CHECK(cudaEventDestroy(stop));
 
     CUDA_CHECK(cudaMemcpy(dst, param.dst, sizeof(float) * N, cudaMemcpyDeviceToHost));
+    printf("Kernel execution time: %.3f ms\n", milliseconds);
+    printf("Kernel execution speed: %.3f GFLOPS\n", calcu_gflops(N, milliseconds));
 
-    launch_elementwise_mul_native(param);
-    CUDA_CHECK(cudaDeviceSynchronize())
-    
-    CUDA_CHECK(cudaMemcpy(dst_verify, param.dst, sizeof(float) * N, cudaMemcpyDeviceToHost));
+
     check_result(N, dst, dst_verify);    
 
     CUDA_CHECK(cudaFree(param.lhs));
