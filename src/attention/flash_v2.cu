@@ -113,23 +113,18 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
             float old_scale = exp(row_max - new_max);
             float new_scale = exp(block_max - new_max);
 
-            // PV = P @ V
-            float reg_pv[Bd];
+            // O_acc = old_scale * O_acc + new_scale * P @ V
             for(int d = 0; d < Bd; d++)
             {
-                reg_pv[d] = 0;
+                float pv = 0;
                 for(int kv = 0; kv < Bl; kv++)
                 {
                     int load_smem_p = kv * Bl + tx;
                     int load_smem_v = d * Bl + kv;
-                    reg_pv[d] += smem_s[load_smem_p] * smem_v[load_smem_v];
+                    pv += smem_s[load_smem_p] * smem_v[load_smem_v];
                 }
-            }
-            for(int d = 0; d < Bd; d++)
-            {
                 int load_smem_o = d * Bl + tx;
-                smem_o[load_smem_o] = smem_o[load_smem_o] * old_scale + reg_pv[d] * new_scale;
-
+                smem_o[load_smem_o] = smem_o[load_smem_o] * old_scale + pv * new_scale;
             }
 
             row_sum = row_sum * old_scale + block_sum * new_scale;
@@ -137,13 +132,14 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
         }
         __syncthreads();
 
+        // O = O_acc / row_sum
         for(int d = 0; d < Bd; d++)
         {
             int load_smem_o = d * Bl + tx;
             int store_gmem_o = batch * Lq * D + seq_id * D + (o_d_start + d);
             if (seq_id < Lq && o_d_start + d < D)
             {
-                param.o_ptr[store_gmem_o] = smem_o[load_smem_o] / row_sum;
+                param.o_ptr[store_gmem_o] = smem_o[load_smem_o] / (row_sum + param.eps);
             }
         }
         __syncthreads();
