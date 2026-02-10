@@ -13,8 +13,8 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
     const int Td  = (param.dim + Bd - 1) / Bd;
     const int tx  = threadIdx.x;
 
-    const int batch  =  blockIdx.y;
-    const int seq_id =  blockIdx.x * blockDim.x + threadIdx.x;
+    const int batch   =  blockIdx.y;
+    const int q_start =  blockIdx.x * blockDim.x;
 
     __shared__ float smem_q[Bd * Bl];
     __shared__ float smem_k[Bd * Bl];
@@ -61,9 +61,9 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
                 for(int d = 0; d < Bd; d++)
                 {
                     int load_smem_q = d * Bl + tx;
-                    int load_gmem_q = batch * Lq * D + seq_id * D + (qk_d_start + d);
+                    int load_gmem_q = batch * Lq * D + (q_start + tx) * D + (qk_d_start + d);
 
-                    if (seq_id < Lq && qk_d_start + d < D)
+                    if (q_start + tx < Lq && qk_d_start + d < D)
                         smem_q[load_smem_q] = __ldg(param.q_ptr + load_gmem_q);
                     else
                         smem_q[load_smem_q] = 0;
@@ -136,8 +136,8 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
         for(int d = 0; d < Bd; d++)
         {
             int load_smem_o = d * Bl + tx;
-            int store_gmem_o = batch * Lq * D + seq_id * D + (o_d_start + d);
-            if (seq_id < Lq && o_d_start + d < D)
+            int store_gmem_o = batch * Lq * D + (q_start + tx) * D + (o_d_start + d);
+            if (q_start + tx < Lq && o_d_start + d < D)
             {
                 param.o_ptr[store_gmem_o] = smem_o[load_smem_o] / (row_sum + param.eps);
             }
