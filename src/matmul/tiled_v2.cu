@@ -30,13 +30,8 @@ __global__ void matmul_tiled_v2(matmul_param_t param)
     // use transpose to get less bank conflict
     __shared__ float lhs[BK][BM];
     __shared__ float rhs[BK][BN];
-    float dst[TM][TN];
+    float dst[TM][TN] = {0};
 
-    for(int m = 0; m < TM; m++){
-        for(int n = 0; n < TN; n++){
-            dst[m][n] = 0;
-        }
-    }
 
     for (int bk = 0; bk < (K + BK - 1) / BK; bk++){
         // step 1:  fetch
@@ -65,15 +60,29 @@ __global__ void matmul_tiled_v2(matmul_param_t param)
         __syncthreads();
 
         // step 2: calculate
-    #pragma unroll
-        for (int k = 0; k < BK; k++){
-    #pragma unroll
-            for(int m = 0; m < TM; m++){
-    #pragma unroll
-                for(int n = 0; n < TN; n++){
-                    int store_smem_a_m = ty * TM + m;
-                    int store_smem_b_n = tx * TN + n;
-                    dst[m][n] += lhs[k][SWIZZLE_BANK(store_smem_a_m)] * rhs[k][SWIZZLE_BANK(store_smem_b_n)];
+        #pragma unroll
+        for (int k = 0; k < BK; k++) {
+            float lhs_reg[TM];
+            float rhs_reg[TN];
+
+            #pragma unroll
+            for(int m = 0; m < TM; m++) {
+                int store_smem_a_m = ty * TM + m;
+                lhs_reg[m] = lhs[k][SWIZZLE_BANK(store_smem_a_m)];
+            }
+            
+            
+            #pragma unroll
+            for(int n = 0; n < TN; n++) {
+                int store_smem_b_n = tx * TN + n;
+                rhs_reg[n] = rhs[k][SWIZZLE_BANK(store_smem_b_n)];
+            }
+            
+            #pragma unroll
+            for(int m = 0; m < TM; m++) {
+                #pragma unroll
+                for(int n = 0; n < TN; n++) {
+                    dst[m][n] += lhs_reg[m] * rhs_reg[n];
                 }
             }
         }
