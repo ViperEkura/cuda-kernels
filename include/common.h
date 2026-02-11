@@ -2,6 +2,7 @@
 #define COMMON_H
 
 #include <driver_types.h>
+#include <cublas_v2.h>
 #include <stdio.h>
 
 #define CUDA_CHECK(call)                                                          \
@@ -25,17 +26,16 @@
     }                                                                             \
 }
 
-#define CUDNN_CHECK(status)                                                       \
+#define LAUNCH_CHECK()                                                            \
 {                                                                                 \
-    if (status != CUDNN_STATUS_SUCCESS)                                           \
+    const cudaError_t err = cudaPeekAtLastError();                                \
+    if (err != cudaSuccess)                                                       \
     {                                                                             \
-        fprintf(stderr, "cuDNN Error at %s:%d - Code: %d\n",                      \
-                __FILE__, __LINE__, status);                                      \
+        fprintf(stderr, "Kernel Launch Error at %s:%d - Code: %d, Msg: %s\n",     \
+                __FILE__, __LINE__, err, cudaGetErrorString(err));                \
         exit(EXIT_FAILURE);                                                       \
     }                                                                             \
 }
-
-
 
 template<typename _Dtype>
 int check_result(int N, _Dtype* src, _Dtype* tgt, float atol=1e-5, float rtol=1e-5){
