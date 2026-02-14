@@ -5,8 +5,8 @@ static constexpr int BM = 128, BN = 128;
 static constexpr int BK = 8;
 static constexpr int TM = 8, TN = 8;
 static constexpr int THREAD_NUM = (BM / TM) * (BN / TN);
-static constexpr int MEM_PER_THRED_LHS = (BM * BK) / THREAD_NUM;
-static constexpr int MEM_PER_THRED_RHS = (BN * BK) / THREAD_NUM;
+static constexpr int MEM_PER_THRED_LHS = (BM * BK) / THREAD_NUM; //BK * TM * TN / BN
+static constexpr int MEM_PER_THRED_RHS = (BN * BK) / THREAD_NUM; //BK * TM * TN / BM
 
 #define FLOAT4_PTR(x)(reinterpret_cast<float4*>((x)))
 #define FLOAT4_REF(x)(*reinterpret_cast<float4*>((x)))
@@ -14,6 +14,10 @@ static constexpr int MEM_PER_THRED_RHS = (BN * BK) / THREAD_NUM;
 
 __global__ void matmul_tiled_v3(matmul_param_t param)
 {
+    // check param
+    static_assert(MEM_PER_THRED_LHS % 4 ==0 && MEM_PER_THRED_LHS / 4 > 0);
+    static_assert(MEM_PER_THRED_RHS % 4 ==0 && MEM_PER_THRED_RHS / 4 > 0);
+
     const int M = param.M;
     const int N = param.N;
     const int K = param.K;
@@ -34,7 +38,6 @@ __global__ void matmul_tiled_v3(matmul_param_t param)
 
     for (int bk = 0; bk < (K + BK - 1) / BK; bk++) {
         int k_start = bk * BK;
-
         int load_gmem_lhs_offset = m_start * K + k_start;
         int load_gmem_rhs_offset = k_start * N + n_start;
         int load_gmem_lhs_addr = load_gmem_lhs_offset + load_smem_lhs_m * K + load_smem_lhs_k;
@@ -42,9 +45,16 @@ __global__ void matmul_tiled_v3(matmul_param_t param)
 
         float reg_lhs[MEM_PER_THRED_LHS];
         float reg_rhs[MEM_PER_THRED_RHS];
-        
-        FLOAT4_REF(reg_lhs) = __ldg(FLOAT4_PTR(param.lhs + load_gmem_lhs_addr));
-        FLOAT4_REF(reg_rhs) = __ldg(FLOAT4_PTR(param.rhs + load_gmem_rhs_addr));
+
+        // load
+        for (int i = 0; i < MEM_PER_THRED_LHS / 4; i++)
+        {
+            FLOAT4_REF(&reg_lhs[i * 4]) = __ldg(FLOAT4_PTR(param.lhs + load_gmem_lhs_addr + i * 4));
+        } 
+        for (int i = 0; i < MEM_PER_THRED_RHS / 4; i++)
+        {
+            FLOAT4_REF(&reg_rhs[i * 4]) = __ldg(FLOAT4_PTR(param.rhs + load_gmem_rhs_addr + i * 4));
+        }
 
         for (int g = 0; g < MEM_PER_THRED_LHS; g++)
         {
@@ -67,27 +77,28 @@ __global__ void matmul_tiled_v3(matmul_param_t param)
         }
         __syncthreads();
 
-
-        for (int k = 0; k < BK; k++) {
+        // compute
+        for (int k = 0; k < BK; k++) 
+        {
             float lhs_reg[TM];
             float rhs_reg[TN];
             
-            #pragma unroll
-            for (int m = 0; m < TM; m++) {
+            for (int m = 0; m < TM; m++) 
+            {
                 int comp_m = ty * TM + m;
                 lhs_reg[m] = lhs[k][SWIZZLE_BANK(comp_m)];
             }
             
-            #pragma unroll
-            for (int n = 0; n < TN; n++) {
+            for (int n = 0; n < TN; n++) 
+            {
                 int comp_n = tx * TN + n;
                 rhs_reg[n] = rhs[k][SWIZZLE_BANK(comp_n)];
             }
             
-            #pragma unroll
-            for (int m = 0; m < TM; m++) {
-                #pragma unroll
-                for (int n = 0; n < TN; n++) {
+            for (int m = 0; m < TM; m++) 
+            {
+                for (int n = 0; n < TN; n++) 
+                {
                     dst[m][n] += lhs_reg[m] * rhs_reg[n];
                 }
             }
@@ -95,10 +106,9 @@ __global__ void matmul_tiled_v3(matmul_param_t param)
         __syncthreads();
     }
 
-    #pragma unroll
+    // sotre
     for (int m = 0; m < TM; m++) 
     {
-        #pragma unroll
         for(int n = 0; n < TN; n++) 
         {
             int store_gmem_c_m = by * BM + ty * TM + m;
