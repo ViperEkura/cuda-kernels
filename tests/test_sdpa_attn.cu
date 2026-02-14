@@ -1,7 +1,10 @@
+#include <map>
+#include <string>
 #include "kernels/attention.h"
+#include "parser.h"
 #include "common.h"
 
-void (*launch_func)(attention_param_t) = launch_sdqa_attention_fwd_flash_v2;
+using LaunchFunc = void(*)(attention_param_t);
 
 float calcu_gflops(float b, float l_q, float l_kv, float d, float ms)
 {
@@ -21,10 +24,44 @@ float calcu_gflops(float b, float l_q, float l_kv, float d, float ms)
 
 int main(int argc, char** argv)
 {
-    int b    = atoi(argv[1]);
-    int l_q  = atoi(argv[2]);
-    int l_kv = atoi(argv[3]);
-    int d    = atoi(argv[4]);
+    std::map<std::string, LaunchFunc> func_map = {
+        {"native", launch_sdqa_attention_fwd_native},
+        {"cublas", launch_sdqa_attention_fwd_cublas},
+        {"flash_v1", launch_sdqa_attention_fwd_flash_v1},
+        {"flash_v2", launch_sdqa_attention_fwd_flash_v2},
+    };
+
+    ArgParser parser(argc, argv);
+    std::string func_name = parser.get("launch_func", "flash_v2");
+    
+    LaunchFunc launch_func = nullptr;
+    auto it = func_map.find(func_name);
+    if (it == func_map.end()) {
+        fprintf(stderr, "Error: Unknown kernel '%s'. Available kernels: ", func_name.c_str());
+        for (const auto& pair : func_map) {
+            fprintf(stderr, "%s ", pair.first.c_str());
+        }
+        fprintf(stderr, "\n");
+        return EXIT_FAILURE;
+    }
+    launch_func = it->second;
+
+    const auto& pos = parser.positionals();
+    if (pos.size() != 4) {
+        fprintf(stderr, "\nParameters:\n");
+        fprintf(stderr, "  batch     Batch size\n");
+        fprintf(stderr, "  len_q     Query sequence length\n");
+        fprintf(stderr, "  len_kv    Key/Value sequence length\n");
+        fprintf(stderr, "  dim       Hidden dimension\n");
+        fprintf(stderr, "Options:\n");
+        fprintf(stderr, "  --launch_func=NAME\n");
+        return EXIT_FAILURE;
+    }
+
+    int b    = atoi(pos[0].c_str());
+    int l_q  = atoi(pos[1].c_str());
+    int l_kv = atoi(pos[2].c_str());
+    int d    = atoi(pos[3].c_str());
     int seed = 42;
 
     attention_param_t param;

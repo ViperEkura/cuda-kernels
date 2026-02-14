@@ -1,7 +1,10 @@
+#include <map>
+#include <string>
 #include "kernels/softmax.h"
+#include "parser.h"
 #include "common.h"
 
-void (*launch_func)(softmax_param_t) = launch_softmax_smem;
+using LaunchFunc = void(*)(softmax_param_t);
 
 float calcu_gflops(float size, float ms)
 {
@@ -9,6 +12,40 @@ float calcu_gflops(float size, float ms)
 }
 
 int main(int argc, char** argv){
+    std::map<std::string, LaunchFunc> func_map = {
+        {"native", launch_softmax_native},
+        {"smem", launch_softmax_smem},
+    };
+    ArgParser parser(argc, argv);
+    std::string func_name = parser.get("launch_func", "smem");
+    LaunchFunc launch_func = nullptr;
+
+    auto it = func_map.find(func_name);
+    if (it == func_map.end()) {
+        fprintf(stderr, "Error: Unknown kernel '%s'. Available kernels: ", func_name.c_str());
+        for (const auto& pair : func_map) {
+            fprintf(stderr, "%s ", pair.first.c_str());
+        }
+        fprintf(stderr, "\n");
+        return EXIT_FAILURE;
+    }
+    launch_func = it->second;
+
+    const auto& pos = parser.positionals();
+    if (pos.size() != 3) {
+        fprintf(stderr, "\nParameters:\n");
+        fprintf(stderr, "  outer    Outer size (batch size)\n");
+        fprintf(stderr, "  dim      Softmax dimension\n");
+        fprintf(stderr, "  inner    Inner size\n");
+        fprintf(stderr, "\nOptions:\n");
+        fprintf(stderr, "  --launch_func=NAME\n");
+        fprintf(stderr, "\nAvailable kernels: ");
+        for (const auto& pair : func_map) {
+            fprintf(stderr, "%s ", pair.first.c_str());
+        }
+        fprintf(stderr, "\n");
+        return EXIT_FAILURE;
+    }
     int outer  = atoi(argv[1]);
     int dim    = atoi(argv[2]);
     int inner  = atoi(argv[3]);

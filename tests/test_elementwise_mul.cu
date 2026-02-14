@@ -1,8 +1,11 @@
+#include <map>
+#include <string>
 #include "kernels/elementwise_mul.h"
+#include "parser.h"
 #include "common.h"
 
 
-void (*launch_func)(elementwise_mul_param_t) = launch_elementwise_mul_vector;
+using LaunchFunc = void(*)(elementwise_mul_param_t);
 
 float calcu_gflops(float n, float ms)
 {
@@ -11,6 +14,37 @@ float calcu_gflops(float n, float ms)
 
 int main(int argc, char** argv)
 {
+    std::map<std::string, LaunchFunc> func_map = {
+        {"native", launch_elementwise_mul_native},
+        {"vector", launch_elementwise_mul_vector},
+    };
+    ArgParser parser(argc, argv);
+    std::string func_name = parser.get("launch_func", "vector");
+    LaunchFunc launch_func = nullptr;
+    auto it = func_map.find(func_name);
+    if (it == func_map.end()) {
+        fprintf(stderr, "Error: Unknown kernel '%s'. Available kernels: ", func_name.c_str());
+        for (const auto& pair : func_map) {
+            fprintf(stderr, "%s ", pair.first.c_str());
+        }
+        fprintf(stderr, "\n");
+        return EXIT_FAILURE;
+    }
+    launch_func = it->second;
+
+    const auto& pos = parser.positionals();
+    if (pos.size() != 1) {
+        fprintf(stderr, "\nParameters:\n");
+        fprintf(stderr, "  N    Number of elements\n");
+        fprintf(stderr, "\nOptions:\n");
+        fprintf(stderr, "  --launch_func=NAME\n");
+        for (const auto& pair : func_map) {
+            fprintf(stderr, "%s ", pair.first.c_str());
+        }
+        fprintf(stderr, "\n");
+        return 1;
+    }
+
     int N = atoi(argv[1]);
     float *lhs, *rhs, *dst, *dst_verify;
     elementwise_mul_param_t param;
@@ -45,7 +79,7 @@ int main(int argc, char** argv)
     CUDA_CHECK(cudaEventCreate(&stop));
 
     CUDA_CHECK(cudaEventRecord(start));
-    launch_elementwise_mul_vector(param);
+    launch_func(param);
     CUDA_CHECK(cudaEventRecord(stop));
 
     float milliseconds = 0;

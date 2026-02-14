@@ -1,10 +1,52 @@
+#include <map>
+#include <string>
 #include "kernels/conv2d.h"
+#include "parser.h"
 #include "common.h"
 
-
-void (*launch_func)(conv2d_param_t) = launch_implgemm;
+using LaunchFunc = void(*)(conv2d_param_t);
 
 int main(int argc, char**argv){
+
+    std::map<std::string, LaunchFunc> func_map = {
+        {"native", launch_conv2d_native},
+        {"implgemm", launch_implgemm},
+        {"winograd", launch_winograd},
+    };
+
+    ArgParser parser(argc, argv);
+    std::string func_name = parser.get("launch_func", "implgemm");
+    LaunchFunc launch_func = nullptr;
+    auto it = func_map.find(func_name);
+    if (it == func_map.end()) {
+        fprintf(stderr, "Error: Unknown kernel '%s'. Available kernels: ", func_name.c_str());
+        for (const auto& pair : func_map) {
+            fprintf(stderr, "%s ", pair.first.c_str());
+        }
+        fprintf(stderr, "\n");
+        return EXIT_FAILURE;
+    }
+
+    launch_func = it->second;
+
+    const auto& pos = parser.positionals();
+    if (pos.size() != 11) {
+        fprintf(stderr, "\nParameters:\n");
+        fprintf(stderr, "  n    Batch size\n");
+        fprintf(stderr, "  c    Input channels\n");
+        fprintf(stderr, "  h    Input height\n");
+        fprintf(stderr, "  w    Input width\n");
+        fprintf(stderr, "  k    Output channels (filters)\n");
+        fprintf(stderr, "  r    Filter height\n");
+        fprintf(stderr, "  s    Filter width\n");
+        fprintf(stderr, "  u    Vertical stride\n");
+        fprintf(stderr, "  v    Horizontal stride\n");
+        fprintf(stderr, "  p    Vertical padding\n");
+        fprintf(stderr, "  q    Horizontal padding\n");
+        fprintf(stderr, "Options:\n");
+        fprintf(stderr, "  --launch_func=NAME\n");
+    }
+    
     int n = atoi(argv[1]);
     int c = atoi(argv[2]);
     int h = atoi(argv[3]);

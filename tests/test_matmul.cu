@@ -1,7 +1,9 @@
+#include <map>
 #include "kernels/matmul.h"
+#include "parser.h"
 #include "common.h"
 
-void (*launch_func)(matmul_param_t) = launch_matmul_tiled_v3;
+using LaunchFunc = void(*)(matmul_param_t);
 
 float calcu_gflops(float m, float n, float k, float ms)
 {
@@ -12,9 +14,45 @@ float calcu_gflops(float m, float n, float k, float ms)
 
 int main(int argc, char** argv)
 {
-    const int M = atoi(argv[1]);
-    const int N = atoi(argv[2]);
-    const int K = atoi(argv[3]);
+    std::map<std::string, LaunchFunc> func_map = {
+        {"native", launch_matmul_native},
+        {"tiled_v1", launch_matmul_tiled_v1},
+        {"tiled_v2", launch_matmul_tiled_v2},
+        {"tiled_v3", launch_matmul_tiled_v3},
+        {"tiled_dbuf", launch_matmul_tiled_dbuf},
+        {"mma", launch_matmul_mma},
+        {"cublas", launch_matmul_cublas},
+    };
+
+    ArgParser parser = ArgParser(argc, argv);
+    const auto& func = parser.get("launch_func", "tiled_v3");
+    LaunchFunc launch_func = nullptr;
+
+    auto it = func_map.find(func);
+    if (it == func_map.end()) {
+        fprintf(stderr, "Error: Unknown kernel '%s'. Available kernels: ", func.c_str());
+        for (const auto& pair : func_map) {
+            fprintf(stderr, "%s ", pair.first.c_str());
+        }
+        fprintf(stderr, "\n");
+        return EXIT_FAILURE;
+    }
+    launch_func = it->second;
+
+    const auto& pos = parser.positionals();
+    if (pos.size() != 4) {
+        fprintf(stderr, "\nParameters:\n");
+        fprintf(stderr, "  m    First matrix rows (M)\n");
+        fprintf(stderr, "  n    Second matrix columns (N)\n");
+        fprintf(stderr, "  k    Inner dimension (K)\n");
+        fprintf(stderr, "Options:\n");
+        fprintf(stderr, "  --launch_func=NAME\n");
+        return EXIT_FAILURE;
+    }
+
+    const int M = atoi(pos[0].c_str());
+    const int N = atoi(pos[1].c_str());
+    const int K = atoi(pos[2].c_str());
     
     matmul_param_t param;
     param.M = M;
