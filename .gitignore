@@ -8,5 +8,5 @@ bin/*
 # prof
 *.ncu-rep
 
-# bench
-bench*.py
+# bench result
+bench*.*
