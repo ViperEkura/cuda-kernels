@@ -7,7 +7,7 @@ static constexpr int TM = 8, TN = 8;
 static constexpr int THREAD_NUM = (BM / TM) * (BN / TN);
 static constexpr int MEM_PER_THRED_LHS = (BM * BK) / THREAD_NUM;
 static constexpr int MEM_PER_THRED_RHS = (BN * BK) / THREAD_NUM;
-#define SWIZZLE_BANK(x) ((x) ^ ((x) >> 3))
+#define SWIZZLE_BANK(x) ((x) ^ ((x) >> 5))
 
 __global__ void matmul_tiled_v2(matmul_param_t param)
 {

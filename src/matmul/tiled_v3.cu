@@ -7,6 +7,9 @@ static constexpr int TM = 8, TN = 8;
 static constexpr int THREAD_NUM = (BM / TM) * (BN / TN);
 static constexpr int MEM_PER_THRED_LHS = (BM * BK) / THREAD_NUM;
 static constexpr int MEM_PER_THRED_RHS = (BN * BK) / THREAD_NUM;
+
+#define FLOAT4_PTR(x)(reinterpret_cast<float4*>((x)))
+#define FLOAT4_REF(x)(*reinterpret_cast<float4*>((x)))
 #define SWIZZLE_BANK(x) ((x) ^ ((x) >> 5))
 
 __global__ void matmul_tiled_v3(matmul_param_t param)
@@ -18,102 +21,73 @@ __global__ void matmul_tiled_v3(matmul_param_t param)
     const int bx = blockIdx.x, by = blockIdx.y;
     const int tid = threadIdx.y * blockDim.x + threadIdx.x;
 
-    const int load_smem_a_m = tid / (BK / MEM_PER_THRED_LHS);
-    const int load_smem_a_k = tid % (BK / MEM_PER_THRED_LHS) * MEM_PER_THRED_LHS;
-
-    const int load_smem_b_k = tid / (BN / MEM_PER_THRED_RHS);
-    const int load_smem_b_n = tid % (BN / MEM_PER_THRED_RHS) * MEM_PER_THRED_RHS;
-
-    const int load_gmem_a_m = by * BM + load_smem_a_m;
-    const int load_gmem_b_n = bx * BN + load_smem_b_n;
+    const int m_start = by * BM;
+    const int n_start = bx * BN;
+    int load_smem_lhs_m = (MEM_PER_THRED_LHS * tid) / BK;
+    int load_smem_lhs_k = (MEM_PER_THRED_LHS * tid) % BK;
+    int load_smem_rhs_k = (MEM_PER_THRED_RHS * tid) / BN;
+    int load_smem_rhs_n = (MEM_PER_THRED_RHS * tid) % BN;
 
     __shared__ float lhs[BK][BM];
     __shared__ float rhs[BK][BN];
     float dst[TM][TN] = {0};
 
-    constexpr int VEC_SIZE = 4;
-    static_assert(MEM_PER_THRED_LHS % VEC_SIZE == 0);
-    static_assert(MEM_PER_THRED_RHS % VEC_SIZE == 0);
-
     for (int bk = 0; bk < (K + BK - 1) / BK; bk++) {
-        int load_gmem_a_k = bk * BK + load_smem_a_k;
-        int load_gmem_a_addr = load_gmem_a_m * K + load_gmem_a_k;
+        int k_start = bk * BK;
+
+        int load_gmem_lhs_offset = m_start * K + k_start;
+        int load_gmem_rhs_offset = k_start * N + n_start;
+        int load_gmem_lhs_addr = load_gmem_lhs_offset + load_smem_lhs_m * K + load_smem_lhs_k;
+        int load_gmem_rhs_addr = load_gmem_rhs_offset + load_smem_rhs_k * N + load_smem_rhs_n;
+
+        float reg_lhs[MEM_PER_THRED_LHS];
+        float reg_rhs[MEM_PER_THRED_RHS];
         
-        #pragma unroll
-        for(int k = 0; k < MEM_PER_THRED_LHS; k += VEC_SIZE) {
-            if(load_gmem_a_m < M && (load_gmem_a_k + k + 3) < K) {
-                float4 vals = __ldg(reinterpret_cast<const float4*>(
-                    param.lhs + load_gmem_a_addr + k
-                ));
-                
-                lhs[load_smem_a_k + k + 0][SWIZZLE_BANK(load_smem_a_m)] = vals.x;
-                lhs[load_smem_a_k + k + 1][SWIZZLE_BANK(load_smem_a_m)] = vals.y;
-                lhs[load_smem_a_k + k + 2][SWIZZLE_BANK(load_smem_a_m)] = vals.z;
-                lhs[load_smem_a_k + k + 3][SWIZZLE_BANK(load_smem_a_m)] = vals.w;
-            } else {
-                for(int i = 0; i < VEC_SIZE; i++) {
-                    int k_idx = k + i;
-                    if(load_gmem_a_m < M && (load_gmem_a_k + k_idx) < K) {
-                        lhs[load_smem_a_k + k_idx][SWIZZLE_BANK(load_smem_a_m)] = 
-                            param.lhs[load_gmem_a_addr + k_idx];
-                    } else {
-                        lhs[load_smem_a_k + k_idx][SWIZZLE_BANK(load_smem_a_m)] = 0.0f;
-                    }
-                }
-            }
+        FLOAT4_REF(reg_lhs) = __ldg(FLOAT4_PTR(param.lhs + load_gmem_lhs_addr));
+        FLOAT4_REF(reg_rhs) = __ldg(FLOAT4_PTR(param.rhs + load_gmem_rhs_addr));
+
+        for (int g = 0; g < MEM_PER_THRED_LHS; g++)
+        {
+            int store_smem_m = (MEM_PER_THRED_LHS * tid + g) / BK;
+            int store_smem_k = (MEM_PER_THRED_LHS * tid + g) % BK;
+            int load_gmem_lhs_m = m_start + store_smem_m;
+            int load_gmem_lhs_k = k_start + store_smem_k;
+            reg_lhs[g] = (load_gmem_lhs_m < M && load_gmem_lhs_k < K) ? reg_lhs[g] : 0;
+            lhs[store_smem_k][SWIZZLE_BANK(store_smem_m)] = reg_lhs[g];
         }
 
-        int load_gmem_b_k = bk * BK + load_smem_b_k;
-        int load_gmem_b_addr = load_gmem_b_k * N + load_gmem_b_n;
-        
-        #pragma unroll
-        for(int n = 0; n < MEM_PER_THRED_RHS; n += VEC_SIZE) {
-            if(load_gmem_b_k < K && (load_gmem_b_n + n + 3) < N) {
-                float4 vals = __ldg(reinterpret_cast<const float4*>(
-                    param.rhs + load_gmem_b_addr + n
-                ));
-                
-                rhs[load_smem_b_k][SWIZZLE_BANK(load_smem_b_n + n + 0)] = vals.x;
-                rhs[load_smem_b_k][SWIZZLE_BANK(load_smem_b_n + n + 1)] = vals.y;
-                rhs[load_smem_b_k][SWIZZLE_BANK(load_smem_b_n + n + 2)] = vals.z;
-                rhs[load_smem_b_k][SWIZZLE_BANK(load_smem_b_n + n + 3)] = vals.w;
-            } else {
-                for(int i = 0; i < VEC_SIZE; i++) {
-                    int n_idx = n + i;
-                    if(load_gmem_b_k < K && (load_gmem_b_n + n_idx) < N) {
-                        rhs[load_smem_b_k][SWIZZLE_BANK(load_smem_b_n + n_idx)] = 
-                            param.rhs[load_gmem_b_addr + n_idx];
-                    } else {
-                        rhs[load_smem_b_k][SWIZZLE_BANK(load_smem_b_n + n_idx)] = 0.0f;
-                    }
-                }
-            }
+        for (int g = 0; g < MEM_PER_THRED_RHS; g++)
+        {
+            int store_smem_k = (MEM_PER_THRED_RHS * tid + g) / BN;
+            int store_smem_n = (MEM_PER_THRED_RHS * tid + g) % BN;
+            int load_gmem_rhs_k = k_start + load_smem_rhs_k;
+            int load_gmem_rhs_n = n_start + load_smem_rhs_n + g;
+            reg_rhs[g] = (load_gmem_rhs_k < K && load_gmem_rhs_n < N) ? reg_rhs[g] : 0;
+            rhs[store_smem_k][SWIZZLE_BANK(store_smem_n)] = reg_rhs[g];
         }
-        
         __syncthreads();
 
 
-        #pragma unroll
         for (int k = 0; k < BK; k++) {
             float lhs_reg[TM];
             float rhs_reg[TN];
-
+            
             #pragma unroll
-            for(int m = 0; m < TM; m++) {
-                int store_smem_a_m = ty * TM + m;
-                lhs_reg[m] = lhs[k][SWIZZLE_BANK(store_smem_a_m)];
+            for (int m = 0; m < TM; m++) {
+                int comp_m = ty * TM + m;
+                lhs_reg[m] = lhs[k][SWIZZLE_BANK(comp_m)];
             }
             
             #pragma unroll
-            for(int n = 0; n < TN; n++) {
-                int store_smem_b_n = tx * TN + n;
-                rhs_reg[n] = rhs[k][SWIZZLE_BANK(store_smem_b_n)];
+            for (int n = 0; n < TN; n++) {
+                int comp_n = tx * TN + n;
+                rhs_reg[n] = rhs[k][SWIZZLE_BANK(comp_n)];
             }
             
             #pragma unroll
-            for(int m = 0; m < TM; m++) {
+            for (int m = 0; m < TM; m++) {
                 #pragma unroll
-                for(int n = 0; n < TN; n++) {
+                for (int n = 0; n < TN; n++) {
                     dst[m][n] += lhs_reg[m] * rhs_reg[n];
                 }
             }
@@ -122,12 +96,15 @@ __global__ void matmul_tiled_v3(matmul_param_t param)
     }
 
     #pragma unroll
-    for (int m = 0; m < TM; m++) {
-        int store_gmem_c_m = by * BM + ty * TM + m;
+    for (int m = 0; m < TM; m++) 
+    {
         #pragma unroll
-        for(int n = 0; n < TN; n++) {
+        for(int n = 0; n < TN; n++) 
+        {
+            int store_gmem_c_m = by * BM + ty * TM + m;
             int store_gmem_c_n = bx * BN + tx * TN + n;
-            if(store_gmem_c_m < M && store_gmem_c_n < N) {
+            if(store_gmem_c_m < M && store_gmem_c_n < N) 
+            {
                 int store_gmem_c_addr = store_gmem_c_m * N + store_gmem_c_n;
                 param.dst[store_gmem_c_addr] = dst[m][n];
             }
