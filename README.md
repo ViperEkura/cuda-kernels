@@ -28,13 +28,20 @@
     └── ...
 ```
 
-运行项目项目参照以下命令行：
+构建项目项目参照以下命令行：
 
 ```bash
 cmake -S . -B ./build
-make -C ./build
+make -C ./build -j4
 ```
 
+在构建项目之后可以进行对应算子的性能分析：
+
+```bash
+python scripts/operator_bench.py
+```
+
+对应性能分析结果存储在 performance 文件夹目录下
 
 **2. 已实现的 CUDA 算子**
 
