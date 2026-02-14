@@ -1,6 +1,7 @@
 #include <map>
 #include <string>
 #include "kernels/elementwise_mul.h"
+#include "utils/timer.cuh"
 #include "parser.h"
 #include "common.h"
 
@@ -20,6 +21,8 @@ int main(int argc, char** argv)
     };
     ArgParser parser(argc, argv);
     std::string func_name = parser.get("launch_func", "vector");
+    std::string iter_num = parser.get("iter_num", "10");
+
     LaunchFunc launch_func = nullptr;
     auto it = func_map.find(func_name);
     if (it == func_map.end()) {
@@ -36,8 +39,9 @@ int main(int argc, char** argv)
     if (pos.size() != 1) {
         fprintf(stderr, "\nParameters:\n");
         fprintf(stderr, "  N    Number of elements\n");
-        fprintf(stderr, "\nOptions:\n");
+        fprintf(stderr, "Options:\n");
         fprintf(stderr, "  --launch_func=NAME\n");
+        fprintf(stderr, "  --iter=ITER\n");
         for (const auto& pair : func_map) {
             fprintf(stderr, "%s ", pair.first.c_str());
         }
@@ -45,7 +49,9 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    int N = atoi(argv[1]);
+    int N = atoi(pos[0].c_str());
+    int iternum = atoi(iter_num.c_str());
+
     float *lhs, *rhs, *dst, *dst_verify;
     elementwise_mul_param_t param;
 
@@ -74,21 +80,7 @@ int main(int argc, char** argv)
     CUDA_CHECK(cudaDeviceSynchronize())
     CUDA_CHECK(cudaMemcpy(dst_verify, param.dst, sizeof(float) * N, cudaMemcpyDeviceToHost));
 
-    cudaEvent_t start, stop;
-    CUDA_CHECK(cudaEventCreate(&start));
-    CUDA_CHECK(cudaEventCreate(&stop));
-
-    CUDA_CHECK(cudaEventRecord(start));
-    launch_func(param);
-    CUDA_CHECK(cudaEventRecord(stop));
-
-    float milliseconds = 0;
-    CUDA_CHECK(cudaDeviceSynchronize())
-    CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
-
-
-    CUDA_CHECK(cudaEventDestroy(start));
-    CUDA_CHECK(cudaEventDestroy(stop));
+    float milliseconds = measure_kernel_runtime(launch_func, param, iternum);
 
     CUDA_CHECK(cudaMemcpy(dst, param.dst, sizeof(float) * N, cudaMemcpyDeviceToHost));
     printf("Kernel execution time: %.3f ms\n", milliseconds);

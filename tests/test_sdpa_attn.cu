@@ -1,6 +1,7 @@
 #include <map>
 #include <string>
 #include "kernels/attention.h"
+#include "utils/timer.cuh"
 #include "parser.h"
 #include "common.h"
 
@@ -33,7 +34,8 @@ int main(int argc, char** argv)
 
     ArgParser parser(argc, argv);
     std::string func_name = parser.get("launch_func", "flash_v2");
-    
+    std::string iter_num = parser.get("iter_num", "10");
+
     LaunchFunc launch_func = nullptr;
     auto it = func_map.find(func_name);
     if (it == func_map.end()) {
@@ -55,6 +57,7 @@ int main(int argc, char** argv)
         fprintf(stderr, "  dim       Hidden dimension\n");
         fprintf(stderr, "Options:\n");
         fprintf(stderr, "  --launch_func=NAME\n");
+        fprintf(stderr, "  --iter=ITER\n");
         return EXIT_FAILURE;
     }
 
@@ -62,6 +65,7 @@ int main(int argc, char** argv)
     int l_q  = atoi(pos[1].c_str());
     int l_kv = atoi(pos[2].c_str());
     int d    = atoi(pos[3].c_str());
+    int iternum = atoi(iter_num.c_str());
     int seed = 42;
 
     attention_param_t param;
@@ -98,23 +102,12 @@ int main(int argc, char** argv)
 
     launch_sdqa_attention_fwd_cublas(param);
     CUDA_CHECK(cudaMemcpy(o_host_verify, param.o_ptr, sizeof(float)*b*l_q*d, cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaDeviceSynchronize());
-
-    cudaEvent_t start, stop;
-    CUDA_CHECK(cudaEventCreate(&start));
-    CUDA_CHECK(cudaEventCreate(&stop));
-
-    CUDA_CHECK(cudaEventRecord(start));
-    launch_func(param);
-    CUDA_CHECK(cudaEventRecord(stop));
-
-    float milliseconds = 0;
-    CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
+   
+    float milliseconds = measure_kernel_runtime(launch_func, param, iternum);
+    
+    CUDA_CHECK(cudaMemcpy(o_host, param.o_ptr,sizeof(float)*b*l_q*d, cudaMemcpyDeviceToHost));
     printf("Kernel execution time: %.3f ms\n", milliseconds);
     printf("Kernel execution speed: %.3f GFLOPS\n", calcu_gflops(b, l_q, l_kv, d, milliseconds));
-    CUDA_CHECK(cudaMemcpy(o_host, param.o_ptr,sizeof(float)*b*l_q*d, cudaMemcpyDeviceToHost));
-
     check_result(b*l_q*d, o_host, o_host_verify, 1e-3);
 
     CUDA_CHECK(cudaFree(param.q_ptr));

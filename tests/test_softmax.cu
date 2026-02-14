@@ -1,6 +1,7 @@
 #include <map>
 #include <string>
 #include "kernels/softmax.h"
+#include "utils/timer.cuh"
 #include "parser.h"
 #include "common.h"
 
@@ -18,6 +19,7 @@ int main(int argc, char** argv){
     };
     ArgParser parser(argc, argv);
     std::string func_name = parser.get("launch_func", "smem");
+    std::string iter_num = parser.get("iter_num", "10");
     LaunchFunc launch_func = nullptr;
 
     auto it = func_map.find(func_name);
@@ -39,16 +41,15 @@ int main(int argc, char** argv){
         fprintf(stderr, "  inner    Inner size\n");
         fprintf(stderr, "\nOptions:\n");
         fprintf(stderr, "  --launch_func=NAME\n");
-        fprintf(stderr, "\nAvailable kernels: ");
-        for (const auto& pair : func_map) {
-            fprintf(stderr, "%s ", pair.first.c_str());
-        }
+        fprintf(stderr, "  --iter=ITER\n");
+
         fprintf(stderr, "\n");
         return EXIT_FAILURE;
     }
     int outer  = atoi(argv[1]);
     int dim    = atoi(argv[2]);
     int inner  = atoi(argv[3]);
+    int iternum = atoi(iter_num.c_str());
     int seed   = 42;
 
     softmax_param_t param;
@@ -74,27 +75,16 @@ int main(int argc, char** argv){
     launch_softmax_native(param);
     CUDA_CHECK(cudaMemcpy(dst_verify, param.dst, size * sizeof(float), cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaDeviceSynchronize());
+   
+    float milliseconds = measure_kernel_runtime(launch_func, param, iternum);
     
-    cudaEvent_t start, stop;
-    CUDA_CHECK(cudaEventCreate(&start));
-    CUDA_CHECK(cudaEventCreate(&stop));
-
-    CUDA_CHECK(cudaEventRecord(start));
-    launch_func(param);
-    CUDA_CHECK(cudaEventRecord(stop));
-
-    float milliseconds = 0;
-    CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
     CUDA_CHECK(cudaMemcpy(dst, param.dst, size * sizeof(float), cudaMemcpyDeviceToHost));
-
     printf("Kernel execution time: %.3f ms\n", milliseconds);
     printf("Kernel execution speed: %.3f GFLOPS\n", calcu_gflops(size, milliseconds));
-
     check_result(size, dst, dst_verify);
     
-    cudaFree(param.src);
-    cudaFree(param.dst);
+    CUDA_CHECK(cudaFree(param.src));
+    CUDA_CHECK(cudaFree(param.dst));
 
     free(src);
     free(dst);
