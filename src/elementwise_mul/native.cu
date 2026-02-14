@@ -1,18 +1,19 @@
 #include "kernels/elementwise_mul.h"
 
-static constexpr int THRED = 128;
+static constexpr int THRED = 256;
 static constexpr int TILE_SIZE = 32;
 
 __global__ void elementwise_mul_native(elementwise_mul_param_t param)
 {
     int tx = threadIdx.x;
     int bx = blockIdx.x;
-    int base_idx = (bx * blockDim.x + tx) * TILE_SIZE;
-    int residual_idx = min(param.N - base_idx, TILE_SIZE);
-
-    for (int i = 0; i < residual_idx; i++) {
-        int idx = base_idx + i;
-        param.dst[idx] = param.lhs[idx] *  param.rhs[idx];
+    
+    int block_start = bx * blockDim.x * TILE_SIZE;
+    int block_end = min(block_start + blockDim.x * TILE_SIZE, param.N);
+    
+    // block stride
+    for (int offset = block_start + tx; offset < block_end; offset += blockDim.x) {
+        param.dst[offset] = param.lhs[offset] * param.rhs[offset];
     }
 }
 

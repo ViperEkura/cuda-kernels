@@ -2,7 +2,7 @@
 #include "common.h"
 
 
-void (*launch_func)(elementwise_mul_param_t) = launch_elementwise_mul_native;
+void (*launch_func)(elementwise_mul_param_t) = launch_elementwise_mul_vector;
 
 float calcu_gflops(float n, float ms)
 {
