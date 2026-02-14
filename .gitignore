@@ -9,4 +9,4 @@ bin/*
 *.ncu-rep
 
 # bench result
-bench*.*
+performance/*

@@ -14,7 +14,7 @@ KERNELS = [
     ("tiled_v1", "Tiled v1", 's-'),
     ("tiled_v2", "Tiled v2", '^-'),
     ("tiled_v3", "Tiled v3", 'd-'),
-    ("tiled_dbuf", "Tiled+DBuf", '*-'),
+    ("tiled_dbuf", "Tiled + DBuf", '*-'),
     ("mma", "Tensor Core", 'x-'),
     ("cublas", "cuBLAS", 'v-')
 ]
@@ -23,7 +23,9 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.dirname(script_dir)
 
 EXECUTABLE = os.path.join(root_dir, "bin", "test_matmul")
+SAVE = os.path.join(root_dir, "performance", "test_matmul")
 RESULTS = {}  # Using kernel_name as key
+os.makedirs(SAVE, exist_ok=True)
 
 def run_test(size, kernel):
     """Run a single test"""
@@ -79,7 +81,7 @@ def run_benchmark():
 
 def save_results():
     """Save results to CSV"""
-    with open('bench_results.csv', 'w') as f:
+    with open(os.path.join(SAVE, "result.csv"), 'w') as f:
         # Write header - using display names
         header = "Size"
         for _, display_name, _ in KERNELS:
@@ -148,7 +150,7 @@ def plot_results():
     plt.tight_layout()
     
     # Save image
-    plt.savefig('benchmark_gflops.png', dpi=150, bbox_inches='tight')
+    plt.savefig(os.path.join(SAVE, "result.png"), dpi=150, bbox_inches='tight')
     print("✅ Performance chart saved to benchmark_gflops.png")
     
     # Display image
