@@ -40,7 +40,7 @@ int main(int argc, char** argv)
     launch_func = it->second;
 
     const auto& pos = parser.positionals();
-    if (pos.size() != 4) {
+    if (pos.size() != 3) {
         fprintf(stderr, "\nParameters:\n");
         fprintf(stderr, "  m    First matrix rows (M)\n");
         fprintf(stderr, "  n    Second matrix columns (N)\n");
