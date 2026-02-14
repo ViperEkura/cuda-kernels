@@ -1,7 +1,7 @@
 #include "kernels/matmul.h"
 #include "common.h"
 
-void (*launch_func)(matmul_param_t) = launch_matmul_tiled_v2;
+void (*launch_func)(matmul_param_t) = launch_matmul_tiled_v3;
 
 float calcu_gflops(float m, float n, float k, float ms)
 {

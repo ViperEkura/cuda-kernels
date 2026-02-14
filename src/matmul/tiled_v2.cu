@@ -40,7 +40,7 @@ __global__ void matmul_tiled_v2(matmul_param_t param)
         int load_gmem_b_k = bk * BK + load_smem_b_k;
         int load_gmem_b_addr = load_gmem_b_k * N + load_gmem_b_n;
 
-    #pragma unroll
+        #pragma unroll
         for(int k = 0; k < MEM_PER_THRED_LHS; k++){
             if(load_gmem_a_m < M && (load_gmem_a_k + k) < K) {
                 lhs[load_smem_a_k + k][SWIZZLE_BANK(load_smem_a_m)] = param.lhs[load_gmem_a_addr + k];
@@ -49,7 +49,7 @@ __global__ void matmul_tiled_v2(matmul_param_t param)
             }
         }
 
-    #pragma unroll
+        #pragma unroll
         for(int n = 0; n < MEM_PER_THRED_RHS; n++){
             if(load_gmem_b_k < K && (load_gmem_b_n + n) < N) {
                 rhs[load_smem_b_k][SWIZZLE_BANK(load_smem_b_n + n)] = param.rhs[load_gmem_b_addr + n];
