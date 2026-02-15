@@ -1,6 +1,6 @@
 #include "kernels/attention.h"
 
-static constexpr int Bl = 32;
+static constexpr int Bl = 64;
 static constexpr int Bd = 32;
 
 __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
@@ -19,8 +19,9 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
     __shared__ float smem_q[Bd * Bl];
     __shared__ float smem_k[Bd * Bl];
     __shared__ float smem_v[Bd * Bl];
-    __shared__ float smem_s[Bl * Bl];
-    __shared__ float smem_o[Bd * Bl];
+
+    float reg_o[Bd];
+    float reg_s[Bl];
 
     for (int o_d_stride = 0; o_d_stride < Td; o_d_stride++)
     {
@@ -31,7 +32,7 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
         // O = 0
         for(int d = 0; d < Bd; d++)
         {
-            smem_o[d * Bl + tx] = 0;
+            reg_o[d] = 0;
         }
 
         for (int kv_stride = 0; kv_stride < Tkv; kv_stride++)
@@ -51,7 +52,7 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
             // S = 0
             for(int kv = 0; kv < Bl; kv++)
             {
-                smem_s[kv * Bl + tx] = 0;
+                reg_s[kv] = 0;
             }
 
             for(int qk_d_stride = 0; qk_d_stride < Td; qk_d_stride++)
@@ -79,14 +80,13 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
 
                 __syncthreads();
                 // S = Q @ K.T
-                for(int bkv = 0; bkv < Bl; bkv++)
+                for(int kv = 0; kv < Bl; kv++)
                 {
                     for(int d = 0; d < Bd; d++)
                     {
                         int load_smem_q = d * Bl + tx;  // [d, l]
-                        int load_smem_k = d * Bl + bkv; // [d, l]
-                        int store_smem_s = bkv * Bl + tx;
-                        smem_s[store_smem_s] += smem_q[load_smem_q] * smem_k[load_smem_k];
+                        int load_smem_k = d * Bl + kv; // [d, l]
+                        reg_s[kv] += smem_q[load_smem_q] * smem_k[load_smem_k];
                     }
                 }
                 __syncthreads();
@@ -98,16 +98,15 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
             // block_max = max(S, dim=-1)
             for (int kv = 0; kv < Bl; kv++)
             {
-                block_max = max(block_max, smem_s[kv * Bl + tx] * param.scale);
+                block_max = max(block_max, reg_s[kv] * param.scale);
             }
             // P = exp(S - block_max)
             // block_sum = sum(P, dim=-1)
             for (int kv = 0; kv < Bl; kv++)
             {
-                smem_s[kv * Bl + tx] = exp(smem_s[kv * Bl + tx] * param.scale - block_max);
-                block_sum += smem_s[kv * Bl + tx];
+                reg_s[kv] = exp(reg_s[kv] * param.scale - block_max);
+                block_sum += reg_s[kv];
             }
-            __syncthreads();
 
             float new_max = max(block_max, row_max);
             float old_scale = exp(row_max - new_max);
@@ -119,27 +118,25 @@ __global__ void sdqa_attention_fwd_flash_v2(attention_param_t param)
                 float pv = 0;
                 for(int kv = 0; kv < Bl; kv++)
                 {
-                    int load_smem_p = kv * Bl + tx;
                     int load_smem_v = d * Bl + kv;
-                    pv += smem_s[load_smem_p] * smem_v[load_smem_v];
+                    pv += reg_s[kv] * smem_v[load_smem_v];
                 }
-                int load_smem_o = d * Bl + tx;
-                smem_o[load_smem_o] = smem_o[load_smem_o] * old_scale + pv * new_scale;
+                reg_o[d] = reg_o[d] * old_scale + pv * new_scale;
             }
 
             row_sum = row_sum * old_scale + block_sum * new_scale;
             row_max = new_max;
+            __syncthreads();
         }
         __syncthreads();
 
         // O = O_acc / row_sum
         for(int d = 0; d < Bd; d++)
         {
-            int load_smem_o = d * Bl + tx;
             int store_gmem_o = batch * Lq * D + (q_start + tx) * D + (o_d_start + d);
             if (q_start + tx < Lq && o_d_start + d < D)
             {
-                param.o_ptr[store_gmem_o] = smem_o[load_smem_o] / (row_sum + param.eps);
+                param.o_ptr[store_gmem_o] = reg_o[d] / (row_sum + param.eps);
             }
         }
         __syncthreads();
