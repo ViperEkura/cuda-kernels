@@ -90,7 +90,7 @@ int main(int argc, char** argv)
     CUDA_CHECK(cudaMemcpy(host_C, param.dst, sizeof(float) * M * N, cudaMemcpyDeviceToHost));
     printf("Kernel execution time: %.3f ms\n", milliseconds);
     printf("Kernel execution speed: %.3f GFLOPS\n", calcu_gflops(M, N, K, milliseconds));
-    check_result(N, host_C, host_C_verify);
+    check_result(N, host_C, host_C_verify, 5e-5, 2e-5); //  for mixed precision 
 
     CUDA_CHECK(cudaFree(param.lhs));
     CUDA_CHECK(cudaFree(param.rhs));
