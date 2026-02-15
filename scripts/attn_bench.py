@@ -8,12 +8,12 @@ from datetime import datetime
 # Test configurations - (batch, len_q, len_kv, dim)
 # Keep len_q == len_kv for simplicity unless you need asymmetry
 ATTENTION_SIZES = [
-    (4,   64,   64, 64),
-    (4,  128,  128, 64),
-    (4,  256,  256, 64),
-    (4,  512,  512, 64),
-    (4, 1024, 1024, 64),
-    (4, 2048, 2048, 64),
+    (4,   64,   64, 32),
+    (4,  128,  128, 32),
+    (4,  256,  256, 32),
+    (4,  512,  512, 32),
+    (4, 1024, 1024, 32),
+    (4, 2048, 2048, 32),
 ]
 
 # Define kernels: (kernel_name, display_name, marker_style)
