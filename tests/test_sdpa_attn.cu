@@ -30,6 +30,7 @@ int main(int argc, char** argv)
         {"cublas", launch_sdqa_attention_fwd_cublas},
         {"flash_v1", launch_sdqa_attention_fwd_flash_v1},
         {"flash_v2", launch_sdqa_attention_fwd_flash_v2},
+        {"flash_v3", launch_sdqa_attention_fwd_flash_v3},
     };
 
     ArgParser parser(argc, argv);

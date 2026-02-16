@@ -22,6 +22,7 @@ KERNELS = [
     ("cublas", "cuBLAS", 'v-'),
     ("flash_v1", "Flash v1", 's-'),
     ("flash_v2", "Flash v2", '*-'),
+    ("flash_v3", "Flash v3", 'x-'),
 ]
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
