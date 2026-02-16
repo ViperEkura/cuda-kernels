@@ -1,6 +1,6 @@
 #include "kernels/attention.h"
 
-static constexpr int Bl = 128;
+static constexpr int Bl = 64;
 static constexpr int Bd = 32;
 
 #define FLOAT4_PTR(x)(reinterpret_cast<float4*>((x)))
@@ -87,9 +87,9 @@ __global__ void sdqa_attention_fwd_flash_v3(attention_param_t param)
 
                 __syncthreads();
                 // S = Q @ K.T
-                for(int kv = 0; kv < Bl; kv++)
+                for(int d = 0; d < Bd; d++)
                 {
-                    for(int d = 0; d < Bd; d++)
+                    for(int kv = 0; kv < Bl; kv++)
                     {
                         int load_smem_q = tx * Bd + d;
                         int load_smem_k = kv * Bd + d;
