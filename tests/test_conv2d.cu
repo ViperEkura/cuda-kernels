@@ -26,7 +26,7 @@ int main(int argc, char**argv){
 
     ArgParser parser(argc, argv);
     std::string func_name = parser.get("launch_func", "implgemm");
-    std::string iter_num = parser.get("iter_num", "10");
+    std::string iter_num = parser.get("iter", "10");
     
     LaunchFunc launch_func = nullptr;
     auto it = func_map.find(func_name);

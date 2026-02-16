@@ -27,7 +27,7 @@ int main(int argc, char** argv)
 
     ArgParser parser = ArgParser(argc, argv);
     std::string func = parser.get("launch_func", "tiled_v3");
-    std::string iter_num = parser.get("iter_num", "10");
+    std::string iter_num = parser.get("iter", "10");
 
     LaunchFunc launch_func = nullptr;
 
