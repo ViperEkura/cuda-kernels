@@ -1,6 +1,7 @@
 #include "kernels/matmul.h"
 
-static constexpr int TILE_SIZE = 8;
+static constexpr int TILE_SIZE = 16;
+static constexpr int OFFSET = 1;
 
 __global__ void matmul_tiled_v1(matmul_param_t param)
 {
@@ -19,13 +20,10 @@ __global__ void matmul_tiled_v1(matmul_param_t param)
     int load_smem_a_k = tid % TILE_SIZE;
     int load_smem_b_k = tid / TILE_SIZE;
     int load_smem_b_n = tid % TILE_SIZE;
-
-    int load_smem_a_addr = load_smem_a_m * TILE_SIZE + load_smem_a_k;
-    int load_smem_b_addr = load_smem_b_k * TILE_SIZE + load_smem_b_n;
     int bk_stride_num = (K + TILE_SIZE - 1)/ TILE_SIZE;
 
-    __shared__ float smem_lhs[TILE_SIZE * TILE_SIZE];
-    __shared__ float smem_rhs[TILE_SIZE * TILE_SIZE];
+    __shared__ float smem_lhs[TILE_SIZE][TILE_SIZE + OFFSET];
+    __shared__ float smem_rhs[TILE_SIZE][TILE_SIZE + OFFSET];
     float sum = 0;
 
     for (int bk = 0; bk < bk_stride_num;  bk++)
@@ -34,22 +32,22 @@ __global__ void matmul_tiled_v1(matmul_param_t param)
         int load_gmem_a_addr = load_gmem_m * K + load_gmem_a_k;
 
         if (load_gmem_a_k < K && load_gmem_m < M)
-            smem_lhs[load_smem_a_addr] = param.lhs[load_gmem_a_addr];
+            smem_lhs[load_smem_a_m][load_smem_a_k] = param.lhs[load_gmem_a_addr];
         else
-            smem_lhs[load_smem_a_addr] = 0;
+            smem_lhs[load_smem_a_m][load_smem_a_k] = 0;
 
         int load_gmem_b_k = bk * TILE_SIZE + load_smem_b_k;
         int load_gmem_b_addr = load_gmem_b_k * N + load_gmem_n;
         
         if (load_gmem_b_k < K && load_gmem_n < N)
-            smem_rhs[load_smem_b_addr] = param.rhs[load_gmem_b_addr];
+            smem_rhs[load_smem_b_k][load_smem_b_n] = param.rhs[load_gmem_b_addr];
         else
-            smem_rhs[load_smem_b_addr] = 0;
+            smem_rhs[load_smem_b_k][load_smem_b_n] = 0;
         __syncthreads();
 
 #pragma unroll
         for (int k = 0; k < TILE_SIZE; k++){
-            sum += smem_lhs[load_smem_a_m * TILE_SIZE + k] * smem_rhs[k * TILE_SIZE + load_smem_b_n];
+            sum += smem_lhs[load_smem_a_m][load_smem_a_k] * smem_rhs[load_smem_b_k][load_smem_b_n];
         }
         __syncthreads();
     }
