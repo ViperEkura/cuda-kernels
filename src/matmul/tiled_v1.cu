@@ -47,7 +47,7 @@ __global__ void matmul_tiled_v1(matmul_param_t param)
 
 #pragma unroll
         for (int k = 0; k < TILE_SIZE; k++){
-            sum += smem_lhs[load_smem_a_m][load_smem_a_k] * smem_rhs[load_smem_b_k][load_smem_b_n];
+            sum += smem_lhs[load_smem_a_m][k] * smem_rhs[k][load_smem_b_n];
         }
         __syncthreads();
     }

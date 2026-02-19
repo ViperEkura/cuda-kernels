@@ -9,6 +9,8 @@ void launch_matmul_cublas(matmul_param_t param) {
     const float alpha = 1.0f;
     const float beta = 0.0f;
 
+    // (col major) C^T(N×M) = (col major) A^T(N×K) * (col major) B^T(K×M)
+    // (row major) C (M, N) = (col major) C^T(N×M)
     CUBLAS_CHECK(cublasSgemm(handle,
         CUBLAS_OP_N,
         CUBLAS_OP_N,
@@ -17,7 +19,7 @@ void launch_matmul_cublas(matmul_param_t param) {
         param.K,
         &alpha,
         param.rhs,
-        param.N, 
+        param.N,
         param.lhs,
         param.K,
         &beta,
