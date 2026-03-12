@@ -19,6 +19,7 @@ void launch_matmul_tiled_v2(matmul_param_t param);
 void launch_matmul_tiled_v3(matmul_param_t param);
 
 void launch_matmul_mma(matmul_param_t param);
+void launch_matmul_wmma(matmul_param_t param);
 void launch_matmul_cublas(matmul_param_t param);
 
 #endif

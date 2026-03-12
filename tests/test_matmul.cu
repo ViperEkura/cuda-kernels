@@ -20,6 +20,7 @@ int main(int argc, char** argv)
         {"tiled_v1", launch_matmul_tiled_v1},
         {"tiled_v2", launch_matmul_tiled_v2},
         {"tiled_v3", launch_matmul_tiled_v3},
+        {"wmma", launch_matmul_wmma},
         {"mma", launch_matmul_mma},
         {"cublas", launch_matmul_cublas},
     };

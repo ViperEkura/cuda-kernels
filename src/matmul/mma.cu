@@ -1,91 +1,89 @@
+#include "kernels/matmul.h"
 #include <cuda_fp16.h>
-#include <mma.h>
+#include <cstdint>
 #include <cstdio>
 
-#include "kernels/matmul.h"
+static constexpr int BM = 32;
+static constexpr int BN = 32;
+#define UINT32_PTR(x)(reinterpret_cast<uint32_t*>((x)))
 
-using namespace nvcuda;
+__device__ inline void mma_m16n8k16(uint32_t A[4], uint32_t B[2], float C[4]) {
+    asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 "
+                 "{%0, %1, %2, %3}, "
+                 "{%4, %5, %6, %7}, "
+                 "{%8, %9}, "
+                 "{%10, %11, %12, %13};"
+                 : "+f"(C[0]), "+f"(C[1]), "+f"(C[2]), "+f"(C[3])
+                 : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]),
+                   "r"(B[0]), "r"(B[1]),
+                   "f"(C[0]), "f"(C[1]), "f"(C[2]), "f"(C[3]));
+}
 
-static constexpr int WMMA_M = 16;
-static constexpr int WMMA_N = 16;
-static constexpr int WMMA_K = 16;
+__device__ inline void ldmatrix_x4(uint32_t regs[4], uint32_t addr) {
+    asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];"
+                 : "=r"(regs[0]), "=r"(regs[1]), "=r"(regs[2]), "=r"(regs[3])
+                 : "r"(addr));
+}
 
-#define FLOAT4_REF(x)(*reinterpret_cast<float4*>((x)))
-#define HALF2_PTR(x)(reinterpret_cast<half2*>((x)))
+__device__ inline void ldmatrix_x2(uint32_t regs[2], uint32_t addr) {
+    asm volatile("ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];"
+                 : "=r"(regs[0]), "=r"(regs[1])
+                 : "r"(addr));
+}
 
-__global__ void matmul_wmma(matmul_param_t param)
+
+__global__ void matmul_mma(matmul_param_t param)
 {
-    int M = param.M;
     int N = param.N;
     int K = param.K;
-    
-    const int m_start = blockIdx.y * WMMA_M;
-    const int n_start = blockIdx.x * WMMA_N;
-    const int num_tiles_k = (K + WMMA_K - 1) / WMMA_K;
 
-    __shared__ half A_shared[WMMA_M * WMMA_K];
-    __shared__ half B_shared[WMMA_K * WMMA_N];
-    
-    float4 lhs_vec, rhs_vec;
-    
-    wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> a_frag;
-    wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> b_frag;
-    wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> acc_frag;
-    wmma::fill_fragment(acc_frag, 0.0f);
-    
-    for (int tile_k = 0; tile_k < num_tiles_k; tile_k++) {
-        const int k_offset = tile_k * WMMA_K;
-        
-        for (int i = threadIdx.x; i < WMMA_M * WMMA_K / 4; i += blockDim.x) {
-            int base_idx = i * 4;
-            int row_a = base_idx / WMMA_K;
-            int col_a = base_idx % WMMA_K;
-            
-            if (m_start + row_a < M && k_offset + col_a < K && col_a + 3 < WMMA_K) {
-                float* src_ptr = param.lhs + (m_start + row_a) * K + (k_offset + col_a);
-                lhs_vec = FLOAT4_REF(src_ptr);
-                
-                float2 f2_0 = make_float2(lhs_vec.x, lhs_vec.y);
-                float2 f2_1 = make_float2(lhs_vec.z, lhs_vec.w);
-                
-                half2 h2_0 = __float22half2_rn(f2_0);
-                half2 h2_1 = __float22half2_rn(f2_1);
-                
-                HALF2_PTR(A_shared)[base_idx/2] = h2_0;
-                HALF2_PTR(A_shared)[base_idx/2 + 1] = h2_1;
-            }
-            
-            int row_b = base_idx / WMMA_N;
-            int col_b = base_idx % WMMA_N;
-            if (k_offset + row_b < K && n_start + col_b < N && col_b + 3 < WMMA_N) {
-                float* src_ptr = param.rhs + (k_offset + row_b) * N + (n_start + col_b);
-                rhs_vec = FLOAT4_REF(src_ptr);
-                
-                float2 f2_0 = make_float2(rhs_vec.x, rhs_vec.y);
-                float2 f2_1 = make_float2(rhs_vec.z, rhs_vec.w);
-                
-                half2 h2_0 = __float22half2_rn(f2_0);
-                half2 h2_1 = __float22half2_rn(f2_1);
-                
-                HALF2_PTR(B_shared)[base_idx/2] = h2_0;
-                HALF2_PTR(B_shared)[base_idx/2 + 1] = h2_1;
-            }
-        }
+    int warpID = threadIdx.x / 32;
+    int laneID = threadIdx.x % 32;
 
-        __syncthreads();
-                
-        wmma::load_matrix_sync(a_frag, A_shared, WMMA_K);
-        wmma::load_matrix_sync(b_frag, B_shared, WMMA_N);
-        wmma::mma_sync(acc_frag, a_frag, b_frag, acc_frag);
+    // warps arranged in 2x4 grid:
+    // (warp_0 | warp_1 | warp_2 | warp_3)
+    // (warp_4 | warp_5 | warp_6 | warp_7)
 
-        __syncthreads();
+    // each warp compute 16x8 result matrix tile
+
+    int nBlock = BN * blockIdx.x;
+    int mBlock = BM * blockIdx.y;
+
+    int WarpLd =  BN / 8;
+    int nWarp = 8 * (warpID % WarpLd);
+    int mWarp = 16 * (warpID / WarpLd);
+    
+    half A_frag[8];
+    half B_frag[4];
+    float C_frag[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    for (int k_start = 0; k_start < K; k_start += 16)
+    {
+        A_frag[0] = __float2half(param.lhs[(mBlock + mWarp + (laneID / 4)) * K + k_start + (laneID % 4) * 2]);
+        A_frag[1] = __float2half(param.lhs[(mBlock + mWarp + (laneID / 4)) * K + k_start + (laneID % 4) * 2 + 1]);
+        A_frag[2] = __float2half(param.lhs[(mBlock + mWarp + (laneID / 4)) * K + k_start + (laneID % 4) * 2 + 8]);
+        A_frag[3] = __float2half(param.lhs[(mBlock + mWarp + (laneID / 4)) * K + k_start + (laneID % 4) * 2 + 9]);
+
+        A_frag[4] = __float2half(param.lhs[(mBlock + mWarp + (laneID / 4) + 8) * K + k_start + (laneID % 4) * 2]);
+        A_frag[5] = __float2half(param.lhs[(mBlock + mWarp + (laneID / 4) + 8) * K + k_start + (laneID % 4) * 2 + 1]);
+        A_frag[6] = __float2half(param.lhs[(mBlock + mWarp + (laneID / 4) + 8) * K + k_start + (laneID % 4) * 2 + 8]);
+        A_frag[7] = __float2half(param.lhs[(mBlock + mWarp + (laneID / 4) + 8) * K + k_start + (laneID % 4) * 2 + 9]);
+
+        B_frag[0] = __float2half(param.rhs[(k_start + (laneID % 4) * 2) * N + nBlock + nWarp + (laneID / 4)]);
+        B_frag[1] = __float2half(param.rhs[(k_start + (laneID % 4) * 2 + 1) * N + nBlock + nWarp + (laneID / 4)]);
+        B_frag[2] = __float2half(param.rhs[(k_start + (laneID % 4) * 2 + 8) * N + nBlock + nWarp + (laneID / 4)]);
+        B_frag[3] = __float2half(param.rhs[(k_start + (laneID % 4) * 2 + 9) * N + nBlock + nWarp + (laneID / 4)]);
+
+        mma_m16n8k16(UINT32_PTR(A_frag), UINT32_PTR(B_frag), C_frag);
     }
-    
-    if (m_start < M && n_start < N) {
-        float* C_ptr = param.dst + m_start * N + n_start;
-        wmma::store_matrix_sync(C_ptr, acc_frag, N, wmma::mem_row_major);
-    }
+
+    param.dst[(mBlock + mWarp + (laneID / 4)) * N + nBlock + nWarp + (laneID % 4) * 2] = C_frag[0];
+    param.dst[(mBlock + mWarp + (laneID / 4)) * N + nBlock + nWarp + (laneID % 4) * 2 + 1] = C_frag[1];
+    param.dst[(mBlock + mWarp + (laneID / 4) + 8) * N + nBlock + nWarp + (laneID % 4) * 2] = C_frag[2];
+    param.dst[(mBlock + mWarp + (laneID / 4) + 8) * N + nBlock + nWarp + (laneID % 4) * 2 + 1] = C_frag[3];
+
 }
+
 
 void launch_matmul_mma(matmul_param_t param)
 {
@@ -94,15 +92,15 @@ void launch_matmul_mma(matmul_param_t param)
     cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, 0);
     
     if (major < 7) {
-        fprintf(stderr, "WMMA requires Compute Capability 7.0 or higher (SM70+). Current: SM%d%d\n", major, minor);
+        fprintf(stderr, "MMA requires Compute Capability 7.0 or higher (SM70+). Current: SM%d%d\n", major, minor);
         return;
     }
-    
-    dim3 block(32, 1);
-    dim3 grid(
-        (param.N + WMMA_N - 1) / WMMA_N,
-        (param.M + WMMA_M - 1) / WMMA_M
-    );
-    
-    matmul_wmma<<<grid, block>>>(param);
+
+    constexpr int WARP_NUM = (BM * BN) / (16 * 8);
+    constexpr int WARP_SIZE = 32;
+
+    dim3 block(WARP_NUM * WARP_SIZE);
+    dim3 grid((param.N + BN - 1) / BN, (param.M + BM - 1) / BM);
+
+    matmul_mma<<<grid, block>>>(param);
 }

@@ -14,7 +14,7 @@ KERNELS = [
     ("tiled_v1", "Tiled v1", 's-'),
     ("tiled_v2", "Tiled v2", '^-'),
     ("tiled_v3", "Tiled v3", 'd-'),
-    ("mma", "Tensor Core", 'x-'),
+    ("wmma", "WMMA", 'x-'),
     ("cublas", "cuBLAS", 'v-')
 ]
 
