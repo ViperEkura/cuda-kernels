@@ -13,6 +13,7 @@ float measure_kernel_runtime(_Func launch_func, _Param param, int iternum)
     CUDA_CHECK(cudaEventRecord(start));
     for(int i = 0; i < iternum; i++){
         launch_func(param);
+        CUDA_CHECK(cudaGetLastError());  // Check for kernel launch errors
     }
     CUDA_CHECK(cudaEventRecord(stop));
 

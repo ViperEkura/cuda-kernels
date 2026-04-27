@@ -31,8 +31,7 @@
 构建项目项目参照以下命令行：
 
 ```bash
-cmake -S . -B ./build
-make -C ./build -j4
+cmake -S . -B ./build && make -C ./build -j4
 ```
 
 在构建项目之后可以进行对应算子的性能分析：
