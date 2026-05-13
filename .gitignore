@@ -10,3 +10,6 @@ bin/*
 
 # bench result
 performance/*
+
+# agent
+AGENTS.md

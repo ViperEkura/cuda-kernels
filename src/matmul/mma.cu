@@ -3,118 +3,169 @@
 #include <cstdint>
 #include <cstdio>
 
-static constexpr int BM = 32;
-static constexpr int BN = 32;
+static constexpr int BM = 128;
+static constexpr int BN = 128;
+static constexpr int BK = 16;
 
-// MMA shape: m16n8k16
-__device__ inline void mma_m16n8k16(uint32_t (&A)[4], uint32_t (&B)[2], float (&C)[4]) {
-    asm volatile("mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 "
-                 "{%0, %1, %2, %3}, "
-                 "{%4, %5, %6, %7}, "
-                 "{%8, %9}, "
-                 "{%10, %11, %12, %13};"
-                 : "=f"(C[0]), "=f"(C[1]), "=f"(C[2]), "=f"(C[3])
-                 : "r"(A[0]), "r"(A[1]), "r"(A[2]), "r"(A[3]),
-                   "r"(B[0]), "r"(B[1]),
-                   "f"(C[0]), "f"(C[1]), "f"(C[2]), "f"(C[3]));
-}
+static constexpr int MMA_M = 16;
+static constexpr int MMA_N = 8;
 
-__device__ inline void ldmatrix_a(uint32_t (&reg)[4], const void *smem) {
-    uint32_t addr = __cvta_generic_to_shared(smem);
-    asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 "
-                 "{%0,%1,%2,%3}, [%4];"
-                 : "=r"(reg[0]), "=r"(reg[1]), "=r"(reg[2]), "=r"(reg[3])
-                 : "r"(addr));
-}
+static constexpr int WM = 32;
+static constexpr int WN = 32;
 
-__device__ inline void ldmatrix_b(uint32_t (&reg)[2], const void *smem) {
-    uint32_t addr = __cvta_generic_to_shared(smem);
-    asm volatile("ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16 "
-                 "{%0,%1}, [%2];"
-                 : "=r"(reg[0]), "=r"(reg[1])
-                 : "r"(addr));
-}
+static constexpr int MMA_TILES_M = WM / MMA_M;
+static constexpr int MMA_TILES_N = WN / MMA_N;
+
+static constexpr int WARPS_M = BM / WM;
+static constexpr int WARPS_N = BN / WN;
+static constexpr int WARPS   = WARPS_M * WARPS_N;
+static constexpr int THREADS = WARPS * 32;
+
+static constexpr int B_SMEM_PER_WARP = MMA_TILES_N * BK * MMA_N;
+
+#define PACK_HALF2(lo, hi) \
+    (((uint32_t)*(uint16_t*)&(hi) << 16) | *(uint16_t*)&(lo))
 
 __global__ void matmul_mma(matmul_param_t param)
 {
+    int M = param.M;
     int N = param.N;
     int K = param.K;
 
-    int warpID = threadIdx.x / 32;
-    int laneID = threadIdx.x % 32;
+    float *lhs = param.lhs;
+    float *rhs = param.rhs;
+    float *dst = param.dst;
 
-    // warps arranged in 2x4 grid:
-    // each warp compute 16x8 result matrix tile
+    int block_m = blockIdx.y * BM;
+    int block_n = blockIdx.x * BN;
 
-    int nBlock = BN * blockIdx.x;
-    int mBlock = BM * blockIdx.y;
+    int warp_id = threadIdx.x / 32;
+    int lane_id = threadIdx.x % 32;
 
-    int WarpLd =  BN / 8;
-    int nWarp = 8 * (warpID % WarpLd);
-    int mWarp = 16 * (warpID / WarpLd);
-    
-    __shared__ half smemA[BM * 16]; // (BM, BK)
-    __shared__ half smemB[BN * 16]; // (BK, BN)
+    int warp_m = warp_id / WARPS_N;
+    int warp_n = warp_id % WARPS_N;
 
-    uint32_t regA[4];
-    uint32_t regB[2];
-    float regC[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    int wm_start = warp_m * WM;
+    int wn_start = warp_n * WN;
 
+    __shared__ half smemA[BM * BK];
+    __shared__ half smemB[WARPS_N * B_SMEM_PER_WARP];
 
-    for (int kOffset = 0; kOffset < K; kOffset += 16)
+    float acc[MMA_TILES_M][MMA_TILES_N][4] = {};
+
+    for (int k_block = 0; k_block < K; k_block += BK)
     {
-        int nOffset = nBlock + nWarp;
-        int mOffset = mBlock + mWarp;
-
-        #pragma unroll
-        for (int saddrA = laneID; saddrA < BM * 16; saddrA += 32)
-        {
-            int gaddrA = (mOffset + saddrA / 16) * K + kOffset + saddrA % 16;
-            smemA[saddrA] = param.lhs[gaddrA];
+        for (int i = threadIdx.x; i < BM * BK; i += THREADS) {
+            int row = i / BK;
+            int col = i % BK;
+            int g_row = block_m + row;
+            int g_col = k_block + col;
+            smemA[i] = (g_row < M && g_col < K)
+                ? __float2half(lhs[g_row * K + g_col])
+                : __float2half(0.0f);
         }
 
-        #pragma unroll
-        for (int saddrB = laneID; saddrB < BN * 16; saddrB += 32)
-        {
-            int gaddrB = (kOffset + saddrB / 8) * N + nOffset + saddrB % 8;
-            smemB[saddrB] = param.rhs[gaddrB];
+        for (int i = threadIdx.x; i < BN * BK; i += THREADS) {
+            int k_row  = i / BN;
+            int n_col  = i % BN;
+            int g_k = k_block + k_row;
+            int g_n = block_n + n_col;
+            int tgt_warp_n  = n_col / WN;
+            int col_in_warp = n_col % WN;
+            int mma_tile    = col_in_warp / MMA_N;
+            int col_in_mma  = col_in_warp % MMA_N;
+            int smem_idx = tgt_warp_n * B_SMEM_PER_WARP
+                         + mma_tile * (BK * MMA_N)
+                         + k_row * MMA_N
+                         + col_in_mma;
+            smemB[smem_idx] = (g_k < K && g_n < N)
+                ? __float2half(rhs[g_k * N + g_n])
+                : __float2half(0.0f);
         }
+
         __syncthreads();
 
-        ldmatrix_a(regA, smemA);
-        ldmatrix_b(regB, smemB);
-        mma_m16n8k16(regA, regB, regC);
+        int r0 = lane_id / 4;
+        int k0 = (lane_id % 4) * 2;
+
+#pragma unroll
+        for (int mm = 0; mm < MMA_TILES_M; mm++) {
+            int a_row0 = wm_start + mm * MMA_M + r0;
+            int a_row1 = a_row0 + 8;
+
+            uint32_t ra[4] = {
+                PACK_HALF2(smemA[a_row0 * BK + k0],
+                           smemA[a_row0 * BK + k0 + 1]),
+                PACK_HALF2(smemA[a_row1 * BK + k0],
+                           smemA[a_row1 * BK + k0 + 1]),
+                PACK_HALF2(smemA[a_row0 * BK + 8 + k0],
+                           smemA[a_row0 * BK + 8 + k0 + 1]),
+                PACK_HALF2(smemA[a_row1 * BK + 8 + k0],
+                           smemA[a_row1 * BK + 8 + k0 + 1]),
+            };
+
+#pragma unroll
+            for (int mn = 0; mn < MMA_TILES_N; mn++) {
+                int b_base = warp_n * B_SMEM_PER_WARP + mn * (BK * MMA_N);
+                int kb0 = (lane_id % 4) * 2;
+                int n0  = lane_id / 4;
+
+                uint32_t rb[2] = {
+                    PACK_HALF2(smemB[b_base +  kb0      * MMA_N + n0],
+                               smemB[b_base + (kb0 + 1) * MMA_N + n0]),
+                    PACK_HALF2(smemB[b_base + (kb0 + 8) * MMA_N + n0],
+                               smemB[b_base + (kb0 + 9) * MMA_N + n0]),
+                };
+
+                float (&c)[4] = acc[mm][mn];
+                asm volatile(
+                    "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 "
+                    "{%0, %1, %2, %3}, "
+                    "{%4, %5, %6, %7}, "
+                    "{%8, %9}, "
+                    "{%10, %11, %12, %13};"
+                    : "=f"(c[0]), "=f"(c[1]), "=f"(c[2]), "=f"(c[3])
+                    : "r"(ra[0]), "r"(ra[1]), "r"(ra[2]), "r"(ra[3]),
+                      "r"(rb[0]), "r"(rb[1]),
+                      "f"(c[0]), "f"(c[1]), "f"(c[2]), "f"(c[3]));
+            }
+        }
 
         __syncthreads();
     }
 
-    for (int i = 0; i < 4; ++i) 
-    {
-        int r = laneID / 4 * 2 + i / 2;
-        int c = laneID % 4 * 2 + i % 2;
-        int global_r = mBlock + mWarp + r;
-        int global_c = nBlock + nWarp + c;
-        param.dst[global_r * N + global_c] = regC[i];
+#pragma unroll
+    for (int mm = 0; mm < MMA_TILES_M; mm++) {
+#pragma unroll
+        for (int mn = 0; mn < MMA_TILES_N; mn++) {
+            int r0 = lane_id / 4;
+#pragma unroll
+            for (int i = 0; i < 4; i++) {
+                int row = block_m + wm_start + mm * MMA_M
+                        + r0 + ((i >= 2) ? 8 : 0);
+                int col = block_n + wn_start + mn * MMA_N
+                        + (lane_id % 4) * 2 + (i & 1);
+                if (row < M && col < N)
+                    dst[row * N + col] = acc[mm][mn][i];
+            }
+        }
     }
-
 }
-
 
 void launch_matmul_mma(matmul_param_t param)
 {
     int major, minor;
     cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, 0);
     cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, 0);
-    
-    if (major < 7) {
-        fprintf(stderr, "MMA requires Compute Capability 7.0 or higher (SM70+). Current: SM%d%d\n", major, minor);
+
+    if (major < 8) {
+        fprintf(stderr,
+            "MMA requires Compute Capability 8.0+ (SM80+). Current: SM%d%d\n",
+            major, minor);
         return;
     }
 
-    constexpr int wrap_num = (BM * BN) / (16 * 8);
-    constexpr int wrap_size = 32;
-
-    dim3 block(wrap_num * wrap_size);
+    dim3 block(THREADS);
     dim3 grid((param.N + BN - 1) / BN, (param.M + BM - 1) / BM);
 
     matmul_mma<<<grid, block>>>(param);
