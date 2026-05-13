@@ -1,34 +1,24 @@
-#include <string>
 #include "kernels/attention.h"
-#include "registry.h"
+#include "memory.h"
+#include "harness.h"
 #include "utils/timer.cuh"
-#include "parser.h"
 #include "common.h"
 
 float calcu_gflops(float b, float l_q, float l_kv, float d, float ms)
 {
     float total_flops = 0;
-    // 1. QK^T
-    total_flops += b * l_q * l_kv * (2 * d - 1); 
-    // 2. Scale
+    total_flops += b * l_q * l_kv * (2 * d - 1);
     total_flops += b * l_q * l_kv;
-    // 3. Softmax
-    total_flops += b * l_q * (5 * l_kv - 2);  
-    // 4. Attention·V  
-    total_flops += b * l_q * d * (2 * l_kv - 1); 
-
-    //total_flops * 1000 / ms FLOPS;
+    total_flops += b * l_q * (5 * l_kv - 2);
+    total_flops += b * l_q * d * (2 * l_kv - 1);
     return total_flops / (ms * 1e6);
 }
 
 int main(int argc, char** argv)
 {
-    ArgParser parser(argc, argv);
-    std::string func_name = parser.get("launch_func", "flash_v2");
-    std::string iter_num = parser.get("iter", "10");
-    auto launch_func = KernelRegistry<attention_param_t>::lookup(func_name);
+    TestContext<attention_param_t> ctx(argc, argv, "flash_v2");
 
-    const auto& pos = parser.positionals();
+    const auto& pos = ctx.parser.positionals();
     if (pos.size() != 4) {
         fprintf(stderr, "\nParameters:\n");
         fprintf(stderr, "  batch     Batch size\n");
@@ -45,8 +35,6 @@ int main(int argc, char** argv)
     int l_q  = atoi(pos[1].c_str());
     int l_kv = atoi(pos[2].c_str());
     int d    = atoi(pos[3].c_str());
-    int iternum = atoi(iter_num.c_str());
-    int seed = 42;
 
     attention_param_t param;
     param.batch  = b;
@@ -56,48 +44,41 @@ int main(int argc, char** argv)
     param.eps    = 1e-5;
     param.scale  = sqrt(l_kv);
 
-    float* q_host = (float*)malloc(sizeof(float)*b*l_q*d);
-    float* k_host = (float*)malloc(sizeof(float)*b*l_kv*d);
-    float* v_host = (float*)malloc(sizeof(float)*b*l_kv*d);
-    float* o_host = (float*)malloc(sizeof(float)*b*l_q*d);
-    float* o_host_verify = (float*)malloc(sizeof(float)*b*l_q*d);
+    HostPtr<float> q_host, k_host, v_host, o_host, o_host_verify;
+    q_host.alloc(b * l_q * d);
+    k_host.alloc(b * l_kv * d);
+    v_host.alloc(b * l_kv * d);
+    o_host.alloc(b * l_q * d);
+    o_host_verify.alloc(b * l_q * d);
 
-    srand(seed);
-    for(int i = 0; i < b*l_q*d; i++){
-        q_host[i] = (rand()%255)/255.0;
-    }
-    for(int i = 0; i < b*l_kv*d; i++){
-        k_host[i] = (rand()%255)/255.0;
-        v_host[i] = (rand()%255)/255.0;
-    }
+    DevicePtr<float> d_Q, d_K, d_V, d_O;
+    d_Q.alloc(b * l_q * d);
+    d_K.alloc(b * l_kv * d);
+    d_V.alloc(b * l_kv * d);
+    d_O.alloc(b * l_q * d);
 
-    CUDA_CHECK(cudaMalloc((void**)&param.q_ptr, sizeof(float)*b*l_q*d));
-    CUDA_CHECK(cudaMalloc((void**)&param.k_ptr, sizeof(float)*b*l_kv*d));
-    CUDA_CHECK(cudaMalloc((void**)&param.v_ptr, sizeof(float)*b*l_kv*d));
-    CUDA_CHECK(cudaMalloc((void**)&param.o_ptr, sizeof(float)*b*l_q*d));
+    rand_fill_255(q_host, b * l_q * d);
+    rand_fill_255(k_host, b * l_kv * d);
+    rand_fill_255(v_host, b * l_kv * d);
 
-    CUDA_CHECK(cudaMemcpy(param.q_ptr, q_host, b*l_q*d, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(param.k_ptr, k_host, b*l_kv*d, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(param.v_ptr, v_host, b*l_kv*d, cudaMemcpyHostToDevice));
+    param.q_ptr = d_Q;
+    param.k_ptr = d_K;
+    param.v_ptr = d_V;
+    param.o_ptr = d_O;
+
+    CUDA_CHECK(cudaMemcpy(d_Q, q_host, sizeof(float) * b * l_q * d, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_K, k_host, sizeof(float) * b * l_kv * d, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_V, v_host, sizeof(float) * b * l_kv * d, cudaMemcpyHostToDevice));
 
     launch_sdqa_attention_fwd_cublas(param);
-    CUDA_CHECK(cudaMemcpy(o_host_verify, param.o_ptr, sizeof(float)*b*l_q*d, cudaMemcpyDeviceToHost));
-   
-    float milliseconds = measure_kernel_runtime(launch_func, param, iternum);
-    
-    CUDA_CHECK(cudaMemcpy(o_host, param.o_ptr,sizeof(float)*b*l_q*d, cudaMemcpyDeviceToHost));
-    printf("Kernel execution time: %.3f ms\n", milliseconds);
-    printf("Kernel execution speed: %.3f GFLOPS\n", calcu_gflops(b, l_q, l_kv, d, milliseconds));
-    check_result(b*l_q*d, o_host, o_host_verify, 1e-3);
+    CUDA_CHECK(cudaMemcpy(o_host_verify, d_O, sizeof(float) * b * l_q * d, cudaMemcpyDeviceToHost));
 
-    CUDA_CHECK(cudaFree(param.q_ptr));
-    CUDA_CHECK(cudaFree(param.k_ptr));
-    CUDA_CHECK(cudaFree(param.v_ptr));
-    CUDA_CHECK(cudaFree(param.o_ptr));
+    float ms = measure_kernel_runtime(ctx.launch_func, param, ctx.iternum);
 
-    free(q_host);
-    free(k_host);
-    free(v_host);
-    free(o_host);
-    free(o_host_verify);
+    CUDA_CHECK(cudaMemcpy(o_host, d_O, sizeof(float) * b * l_q * d, cudaMemcpyDeviceToHost));
+    printf("Kernel execution time: %.3f ms\n", ms);
+    printf("Kernel execution speed: %.3f GFLOPS\n", calcu_gflops(b, l_q, l_kv, d, ms));
+    check_result(b * l_q * d, (float*)o_host, (float*)o_host_verify, 1e-3);
+
+    return 0;
 }

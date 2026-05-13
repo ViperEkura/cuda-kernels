@@ -1,8 +1,7 @@
-#include <string>
 #include "kernels/softmax.h"
-#include "registry.h"
+#include "memory.h"
+#include "harness.h"
 #include "utils/timer.cuh"
-#include "parser.h"
 #include "common.h"
 
 float calcu_gflops(float size, float ms)
@@ -10,13 +9,11 @@ float calcu_gflops(float size, float ms)
     return 4 * size / (1e6 * ms);
 }
 
-int main(int argc, char** argv){
-    ArgParser parser(argc, argv);
-    std::string func_name = parser.get("launch_func", "smem");
-    std::string iter_num = parser.get("iter", "10");
-    auto launch_func = KernelRegistry<softmax_param_t>::lookup(func_name);
+int main(int argc, char** argv)
+{
+    TestContext<softmax_param_t> ctx(argc, argv, "smem");
 
-    const auto& pos = parser.positionals();
+    const auto& pos = ctx.parser.positionals();
     if (pos.size() != 3) {
         fprintf(stderr, "\nParameters:\n");
         fprintf(stderr, "  outer    Outer size (batch size)\n");
@@ -25,51 +22,47 @@ int main(int argc, char** argv){
         fprintf(stderr, "\nOptions:\n");
         fprintf(stderr, "  --launch_func=NAME\n");
         fprintf(stderr, "  --iter=ITER\n");
-
         fprintf(stderr, "\n");
         return EXIT_FAILURE;
     }
-    int outer  = atoi(pos[0].c_str());
-    int dim    = atoi(pos[1].c_str());
-    int inner  = atoi(pos[2].c_str());
-    int iternum = atoi(iter_num.c_str());
-    int seed   = 42;
+
+    int outer = atoi(pos[0].c_str());
+    int dim   = atoi(pos[1].c_str());
+    int inner = atoi(pos[2].c_str());
 
     softmax_param_t param;
-    param.outer_size = outer;
+    param.outer_size   = outer;
     param.softmax_size = dim;
-    param.inner_size = inner;
+    param.inner_size   = inner;
 
     int size = outer * dim * inner;
-    float* src = (float*)malloc(size * sizeof(float));
-    float* dst = (float*)malloc(size * sizeof(float));
-    float* dst_verify = (float*)malloc(size * sizeof(float));
 
-    srand(seed);
-    for(int i = 0; i < size; i++)
-    {
-       src[i] = (rand()%255)/255.0;
-    }
+    HostPtr<float> src, dst, dst_verify;
+    src.alloc(size);
+    dst.alloc(size);
+    dst_verify.alloc(size);
 
-    CUDA_CHECK(cudaMalloc((void**)&param.src, size * sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void**)&param.dst, size * sizeof(float)));
-    CUDA_CHECK(cudaMemcpy(param.src, src, size * sizeof(float), cudaMemcpyHostToDevice));
+    DevicePtr<float> d_src, d_dst;
+    d_src.alloc(size);
+    d_dst.alloc(size);
+
+    rand_fill_255(src, size);
+
+    param.src = d_src;
+    param.dst = d_dst;
+
+    CUDA_CHECK(cudaMemcpy(d_src, src, sizeof(float) * size, cudaMemcpyHostToDevice));
 
     launch_softmax_native(param);
-    CUDA_CHECK(cudaMemcpy(dst_verify, param.dst, size * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(dst_verify, d_dst, sizeof(float) * size, cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaDeviceSynchronize());
-   
-    float milliseconds = measure_kernel_runtime(launch_func, param, iternum);
-    
-    CUDA_CHECK(cudaMemcpy(dst, param.dst, size * sizeof(float), cudaMemcpyDeviceToHost));
-    printf("Kernel execution time: %.3f ms\n", milliseconds);
-    printf("Kernel execution speed: %.3f GFLOPS\n", calcu_gflops(size, milliseconds));
-    check_result(size, dst, dst_verify);
-    
-    CUDA_CHECK(cudaFree(param.src));
-    CUDA_CHECK(cudaFree(param.dst));
 
-    free(src);
-    free(dst);
-    free(dst_verify);
+    float ms = measure_kernel_runtime(ctx.launch_func, param, ctx.iternum);
+
+    CUDA_CHECK(cudaMemcpy(dst, d_dst, sizeof(float) * size, cudaMemcpyDeviceToHost));
+    printf("Kernel execution time: %.3f ms\n", ms);
+    printf("Kernel execution speed: %.3f GFLOPS\n", calcu_gflops(size, ms));
+    check_result(size, (float*)dst, (float*)dst_verify);
+
+    return 0;
 }

@@ -1,27 +1,21 @@
-#include <string>
 #include "kernels/conv2d.h"
-#include "registry.h"
+#include "memory.h"
+#include "harness.h"
 #include "utils/timer.cuh"
-#include "parser.h"
 #include "common.h"
 
 float calcu_gflops(conv2d_param_t param, float ms)
 {
     int oh = (param.h - param.r + 2 * param.p) / param.u + 1;
     int ow = (param.w - param.s + 2 * param.q) / param.v + 1;
-
-    float total_flops = 2.0 * param.n * param.k * param.c * param.r * param.s * oh * ow;
-    return total_flops / (ms * 1e6);
+    return 2.0 * param.n * param.k * param.c * param.r * param.s * oh * ow / (ms * 1e6);
 }
 
-int main(int argc, char**argv){
+int main(int argc, char** argv)
+{
+    TestContext<conv2d_param_t> ctx(argc, argv, "implgemm");
 
-    ArgParser parser(argc, argv);
-    std::string func_name = parser.get("launch_func", "implgemm");
-    std::string iter_num = parser.get("iter", "10");
-    auto launch_func = KernelRegistry<conv2d_param_t>::lookup(func_name);
-
-    const auto& pos = parser.positionals();
+    const auto& pos = ctx.parser.positionals();
     if (pos.size() != 11) {
         fprintf(stderr, "\nParameters:\n");
         fprintf(stderr, "  n    Batch size\n");
@@ -38,6 +32,7 @@ int main(int argc, char**argv){
         fprintf(stderr, "Options:\n");
         fprintf(stderr, "  --launch_func=NAME\n");
         fprintf(stderr, "  --iter=ITER\n");
+        return EXIT_FAILURE;
     }
 
     int n = atoi(pos[0].c_str());
@@ -52,74 +47,46 @@ int main(int argc, char**argv){
     int p = atoi(pos[9].c_str());
     int q = atoi(pos[10].c_str());
 
-    int outh = (h - r + 2*p)/u + 1;
-    int outw = (w - s + 2*q)/v + 1;
-    int iternum = atoi(iter_num.c_str());
+    int outh = (h - r + 2 * p) / u + 1;
+    int outw = (w - s + 2 * q) / v + 1;
 
-    conv2d_param_t param;      
-    param.n         = n;                             
-    param.c         = c;                             
-    param.h         = h;                             
-    param.w         = w;                             
-    param.k         = k;                             
-    param.r         = r;                             
-    param.s         = s;                             
-    param.u         = u;                             
-    param.v         = v;                             
-    param.p         = p;                             
-    param.q         = q;
-    param.Oh = (h - r + 2*p) / u + 1;
-    param.Ow = (w - s + 2*q) / v + 1;     
+    conv2d_param_t param;
+    param.n  = n;  param.c  = c;  param.h  = h;  param.w  = w;
+    param.k  = k;  param.r  = r;  param.s  = s;
+    param.u  = u;  param.v  = v;  param.p  = p;  param.q  = q;
+    param.Oh = outh;
+    param.Ow = outw;
 
-    float *pIn       = (float*)malloc(n*c*h*w*sizeof(float));
-    float *pWeight   = (float*)malloc(k*c*r*s*sizeof(float));
-    float *pOut      = (float*)malloc(n*k*outh*outw*sizeof(float));
-    float *pOut_verify = (float*)malloc(n*k*outh*outw*sizeof(float));
+    HostPtr<float> pIn, pWeight, pOut, pOut_verify;
+    pIn.alloc(n * c * h * w);
+    pWeight.alloc(k * c * r * s);
+    pOut.alloc(n * k * outh * outw);
+    pOut_verify.alloc(n * k * outh * outw);
 
-    float *pIn_device,*pWeight_device,*pOut_device;
-    CUDA_CHECK(cudaMalloc((void**)&pIn_device, n*c*h*w*sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void**)&pWeight_device, k*c*r*s*sizeof(float)));
-    CUDA_CHECK(cudaMalloc((void**)&pOut_device, n*k*outh*outw*sizeof(float)));
+    DevicePtr<float> d_In, d_Weight, d_Out;
+    d_In.alloc(n * c * h * w);
+    d_Weight.alloc(k * c * r * s);
+    d_Out.alloc(n * k * outh * outw);
 
-    param.in        = pIn_device;        
-    param.weight    = pWeight_device;
-    param.out       = pOut_device;   
-    
-    srand(42);
-    for(int i = 0; i < n*c*h*w; i++){
-        pIn[i] = (rand()%255)/255.0;
-    }
-    
-    for(int i = 0; i < k*c*r*s; i++){
-        pWeight[i] = (rand()%255)/255.0;
-    }
-    
-    for(int i = 0; i < n*k*outh*outw; i++){
-        pOut[i] = 0.0;
-        pOut_verify[i] = 0.0;
-    }
+    rand_fill_255(pIn, n * c * h * w);
+    rand_fill_255(pWeight, k * c * r * s);
 
-    CUDA_CHECK(cudaMemcpy(pIn_device, pIn, n*c*h*w*sizeof(float),cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(pWeight_device,pWeight,k*c*r*s*sizeof(float),cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(pOut_device,pOut, n*k*outh*outw*sizeof(float),cudaMemcpyHostToDevice));
-    
+    param.in     = d_In;
+    param.weight = d_Weight;
+    param.out    = d_Out;
+
+    CUDA_CHECK(cudaMemcpy(d_In, pIn, sizeof(float) * n * c * h * w, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_Weight, pWeight, sizeof(float) * k * c * r * s, cudaMemcpyHostToDevice));
+
     launch_conv2d_native(param);
-    CUDA_CHECK(cudaMemcpy(pOut_verify, pOut_device,  n*k*outh*outw*sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(pOut_verify, d_Out, sizeof(float) * n * k * outh * outw, cudaMemcpyDeviceToHost));
 
-    float milliseconds = measure_kernel_runtime(launch_func, param, iternum);
+    float ms = measure_kernel_runtime(ctx.launch_func, param, ctx.iternum);
 
-    CUDA_CHECK(cudaMemcpy(pOut, pOut_device,  n*k*outh*outw*sizeof(float), cudaMemcpyDeviceToHost));
-    printf("Kernel execution time: %.3f ms\n", milliseconds);
-    printf("Kernel execution speed: %.3f GFLOPS\n", calcu_gflops(param, milliseconds));
-    check_result(n*k*outh*outw, pOut, pOut_verify);
+    CUDA_CHECK(cudaMemcpy(pOut, d_Out, sizeof(float) * n * k * outh * outw, cudaMemcpyDeviceToHost));
+    printf("Kernel execution time: %.3f ms\n", ms);
+    printf("Kernel execution speed: %.3f GFLOPS\n", calcu_gflops(param, ms));
+    check_result(n * k * outh * outw, (float*)pOut, (float*)pOut_verify);
 
-    CUDA_CHECK(cudaFree(pIn_device));
-    CUDA_CHECK(cudaFree(pWeight_device));
-    CUDA_CHECK(cudaFree(pOut_device));
-    
-    free(pIn);
-    free(pWeight);
-    free(pOut);
-    free(pOut_verify);
     return 0;
 }

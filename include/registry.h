@@ -3,6 +3,7 @@
 
 #include <map>
 #include <string>
+#include <vector>
 #include <cstdio>
 
 template <typename ParamType>
@@ -28,6 +29,12 @@ struct KernelRegistry {
         for (auto& p : map) fprintf(stderr, "%s ", p.first.c_str());
         fprintf(stderr, "\n");
         exit(EXIT_FAILURE);
+    }
+
+    static std::vector<std::string> names() {
+        std::vector<std::string> out;
+        for (auto& p : get()) out.push_back(p.first);
+        return out;
     }
 };
 

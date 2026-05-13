@@ -4,7 +4,6 @@
 #include <driver_types.h>
 #include <cublas_v2.h>
 #include <stdio.h>
-#include <map>
 #include <string>
 
 #define CUDA_CHECK(call)                                                          \
@@ -58,17 +57,6 @@ int check_result(int N, _Dtype* src, _Dtype* tgt, float atol=1e-5, float rtol=1e
 
     printf("================finish,error:%d=========================\n",error);
     return error;
-}
-
-template<typename LaunchFunc>
-LaunchFunc lookup_kernel(const std::map<std::string, LaunchFunc>& func_map,
-                          const std::string& name) {
-    auto it = func_map.find(name);
-    if (it != func_map.end()) return it->second;
-    fprintf(stderr, "Error: Unknown kernel '%s'. Available kernels: ", name.c_str());
-    for (const auto& pair : func_map) fprintf(stderr, "%s ", pair.first.c_str());
-    fprintf(stderr, "\n");
-    exit(EXIT_FAILURE);
 }
 
 #endif
