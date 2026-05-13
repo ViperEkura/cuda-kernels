@@ -1,4 +1,5 @@
 #include <cublas_v2.h>
+#include "registry.h"
 
 #include "kernels/attention.h"
 #include "common.h"
@@ -142,3 +143,5 @@ void launch_sdqa_attention_fwd_cublas(attention_param_t param) {
     CUBLAS_CHECK(cublasDestroy(handle));
     CUDA_CHECK(cudaFree(d_scores));
 }
+
+REGISTER_KERNEL(cublas, launch_sdqa_attention_fwd_cublas)

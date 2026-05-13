@@ -1,4 +1,5 @@
 #include "kernels/conv2d.h"
+#include "registry.h"
 
 __global__ void implgemm(conv2d_param_t param)
 {
@@ -268,3 +269,5 @@ void launch_implgemm(conv2d_param_t param)
     dim3 grid(blockx, blocky, blockz);
     implgemm<<<grid, block>>>(param);
 }
+
+REGISTER_KERNEL(implgemm, launch_implgemm)

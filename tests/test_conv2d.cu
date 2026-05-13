@@ -1,11 +1,9 @@
-#include <map>
 #include <string>
 #include "kernels/conv2d.h"
+#include "registry.h"
 #include "utils/timer.cuh"
 #include "parser.h"
 #include "common.h"
-
-using LaunchFunc = void(*)(conv2d_param_t);
 
 float calcu_gflops(conv2d_param_t param, float ms)
 {
@@ -18,17 +16,10 @@ float calcu_gflops(conv2d_param_t param, float ms)
 
 int main(int argc, char**argv){
 
-    std::map<std::string, LaunchFunc> func_map = {
-        {"native", launch_conv2d_native},
-        {"implgemm", launch_implgemm},
-        {"winograd", launch_winograd},
-    };
-
     ArgParser parser(argc, argv);
     std::string func_name = parser.get("launch_func", "implgemm");
     std::string iter_num = parser.get("iter", "10");
-    
-    LaunchFunc launch_func = lookup_kernel(func_map, func_name);
+    auto launch_func = KernelRegistry<conv2d_param_t>::lookup(func_name);
 
     const auto& pos = parser.positionals();
     if (pos.size() != 11) {

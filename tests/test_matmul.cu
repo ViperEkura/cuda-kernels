@@ -1,10 +1,8 @@
-#include <map>
 #include "kernels/matmul.h"
+#include "registry.h"
 #include "utils/timer.cuh"
 #include "parser.h"
 #include "common.h"
-
-using LaunchFunc = void(*)(matmul_param_t);
 
 float calcu_gflops(float m, float n, float k, float ms)
 {
@@ -15,21 +13,10 @@ float calcu_gflops(float m, float n, float k, float ms)
 
 int main(int argc, char** argv)
 {
-    std::map<std::string, LaunchFunc> func_map = {
-        {"native", launch_matmul_native},
-        {"tiled_v1", launch_matmul_tiled_v1},
-        {"tiled_v2", launch_matmul_tiled_v2},
-        {"tiled_v3", launch_matmul_tiled_v3},
-        {"wmma", launch_matmul_wmma},
-        {"mma", launch_matmul_mma},
-        {"cublas", launch_matmul_cublas},
-    };
-
     ArgParser parser = ArgParser(argc, argv);
     std::string func = parser.get("launch_func", "tiled_v3");
     std::string iter_num = parser.get("iter", "10");
-
-    LaunchFunc launch_func = lookup_kernel(func_map, func);
+    auto launch_func = KernelRegistry<matmul_param_t>::lookup(func);
 
     const auto& pos = parser.positionals();
     if (pos.size() != 3) {

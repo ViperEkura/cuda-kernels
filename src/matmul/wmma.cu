@@ -1,4 +1,5 @@
 #include <cuda_fp16.h>
+#include "registry.h"
 #include <mma.h>
 #include <cstdio>
 
@@ -106,3 +107,5 @@ void launch_matmul_wmma(matmul_param_t param)
     
     matmul_wmma<<<grid, block>>>(param);
 }
+
+REGISTER_KERNEL(wmma, launch_matmul_wmma)

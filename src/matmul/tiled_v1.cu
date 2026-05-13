@@ -1,4 +1,5 @@
 #include "kernels/matmul.h"
+#include "registry.h"
 
 static constexpr int TILE_SIZE = 16;
 static constexpr int OFFSET = 1;
@@ -66,3 +67,5 @@ void launch_matmul_tiled_v1(matmul_param_t param)
     dim3 grid((param.N + TILE_SIZE - 1) / TILE_SIZE, (param.M + TILE_SIZE - 1) / TILE_SIZE);
     matmul_tiled_v1<<<grid, block>>>(param);
 }
+
+REGISTER_KERNEL(tiled_v1, launch_matmul_tiled_v1)

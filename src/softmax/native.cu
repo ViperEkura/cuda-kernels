@@ -1,4 +1,5 @@
 #include "kernels/softmax.h"
+#include "registry.h"
 
 
 static constexpr int Bd = 256;
@@ -47,3 +48,5 @@ void launch_softmax_native(softmax_param_t param)
     softmax_native<<<blocks, threads>>>(param);
 
 }
+
+REGISTER_KERNEL(native, launch_softmax_native)

@@ -1,12 +1,10 @@
-#include <map>
 #include <string>
 #include "kernels/elementwise_mul.h"
+#include "registry.h"
 #include "utils/timer.cuh"
 #include "parser.h"
 #include "common.h"
 
-
-using LaunchFunc = void(*)(elementwise_mul_param_t);
 
 float calcu_gflops(float n, float ms)
 {
@@ -15,15 +13,11 @@ float calcu_gflops(float n, float ms)
 
 int main(int argc, char** argv)
 {
-    std::map<std::string, LaunchFunc> func_map = {
-        {"native", launch_elementwise_mul_native},
-        {"vector", launch_elementwise_mul_vector},
-    };
     ArgParser parser(argc, argv);
     std::string func_name = parser.get("launch_func", "vector");
     std::string iter_num = parser.get("iter", "10");
 
-    LaunchFunc launch_func = lookup_kernel(func_map, func_name);
+    auto launch_func = KernelRegistry<elementwise_mul_param_t>::lookup(func_name);
 
     const auto& pos = parser.positionals();
     if (pos.size() != 1) {
@@ -32,9 +26,6 @@ int main(int argc, char** argv)
         fprintf(stderr, "Options:\n");
         fprintf(stderr, "  --launch_func=NAME\n");
         fprintf(stderr, "  --iter=ITER\n");
-        for (const auto& pair : func_map) {
-            fprintf(stderr, "%s ", pair.first.c_str());
-        }
         fprintf(stderr, "\n");
         return 1;
     }

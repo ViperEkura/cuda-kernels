@@ -1,4 +1,5 @@
 #include "kernels/softmax.h"
+#include "registry.h"
 #include "utils/reduce.cuh"
 #include <cstdio>
 
@@ -102,3 +103,5 @@ void launch_softmax_smem(softmax_param_t param)
     
     softmax_smem<<<blocks, threads, total_smem>>>(param);
 }
+
+REGISTER_KERNEL(smem, launch_softmax_smem)

@@ -1,4 +1,5 @@
 #include "kernels/attention.h"
+#include "registry.h"
 
 static constexpr int Bl = 16;
 static constexpr int Bd = 16;
@@ -157,3 +158,5 @@ void launch_sdqa_attention_fwd_flash_v1(attention_param_t param)
     );
     sdqa_attention_fwd_flash_v1<<<grid, block>>>(param);
 }
+
+REGISTER_KERNEL(flash_v1, launch_sdqa_attention_fwd_flash_v1)

@@ -1,4 +1,5 @@
 #include "kernels/conv2d.h"
+#include "registry.h"
 
 __device__ void winograd_4x4_3x3(float* g, float* d,  float* o){
     //g[3,3], d[6, 6], o[4, 4]
@@ -124,3 +125,5 @@ void launch_winograd(conv2d_param_t param){
     dim3 thread(threadx, thready, threadz);
     conv2d_winograd<<<block, thread>>>(param);
 }
+
+REGISTER_KERNEL(winograd, launch_winograd)

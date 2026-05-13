@@ -1,4 +1,5 @@
 #include "kernels/attention.h"
+#include "registry.h"
 
 static constexpr int BQ = 8;
 static constexpr int BD = 64;
@@ -83,3 +84,5 @@ void launch_sdqa_attention_fwd_native(attention_param_t param)
     sdqa_attention_fwd_native<<<grid, block>>>(param);
 
 }
+
+REGISTER_KERNEL(native, launch_sdqa_attention_fwd_native)

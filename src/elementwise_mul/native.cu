@@ -1,4 +1,5 @@
 #include "kernels/elementwise_mul.h"
+#include "registry.h"
 
 static constexpr int THRED = 256;
 static constexpr int TILE_SIZE = 32;
@@ -23,3 +24,5 @@ void launch_elementwise_mul_native(elementwise_mul_param_t param)
     int block = (param.N + seg_size - 1) / seg_size;
     elementwise_mul_native<<<block, THRED>>>(param);
 }
+
+REGISTER_KERNEL(native, launch_elementwise_mul_native)

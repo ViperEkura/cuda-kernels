@@ -1,11 +1,9 @@
-#include <map>
 #include <string>
 #include "kernels/softmax.h"
+#include "registry.h"
 #include "utils/timer.cuh"
 #include "parser.h"
 #include "common.h"
-
-using LaunchFunc = void(*)(softmax_param_t);
 
 float calcu_gflops(float size, float ms)
 {
@@ -13,14 +11,10 @@ float calcu_gflops(float size, float ms)
 }
 
 int main(int argc, char** argv){
-    std::map<std::string, LaunchFunc> func_map = {
-        {"native", launch_softmax_native},
-        {"smem", launch_softmax_smem},
-    };
     ArgParser parser(argc, argv);
     std::string func_name = parser.get("launch_func", "smem");
     std::string iter_num = parser.get("iter", "10");
-    LaunchFunc launch_func = lookup_kernel(func_map, func_name);
+    auto launch_func = KernelRegistry<softmax_param_t>::lookup(func_name);
 
     const auto& pos = parser.positionals();
     if (pos.size() != 3) {

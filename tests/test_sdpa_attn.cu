@@ -1,11 +1,9 @@
-#include <map>
 #include <string>
 #include "kernels/attention.h"
+#include "registry.h"
 #include "utils/timer.cuh"
 #include "parser.h"
 #include "common.h"
-
-using LaunchFunc = void(*)(attention_param_t);
 
 float calcu_gflops(float b, float l_q, float l_kv, float d, float ms)
 {
@@ -25,19 +23,10 @@ float calcu_gflops(float b, float l_q, float l_kv, float d, float ms)
 
 int main(int argc, char** argv)
 {
-    std::map<std::string, LaunchFunc> func_map = {
-        {"native", launch_sdqa_attention_fwd_native},
-        {"cublas", launch_sdqa_attention_fwd_cublas},
-        {"flash_v1", launch_sdqa_attention_fwd_flash_v1},
-        {"flash_v2", launch_sdqa_attention_fwd_flash_v2},
-        {"flash_v3", launch_sdqa_attention_fwd_flash_v3},
-    };
-
     ArgParser parser(argc, argv);
     std::string func_name = parser.get("launch_func", "flash_v2");
     std::string iter_num = parser.get("iter", "10");
-
-    LaunchFunc launch_func = lookup_kernel(func_map, func_name);
+    auto launch_func = KernelRegistry<attention_param_t>::lookup(func_name);
 
     const auto& pos = parser.positionals();
     if (pos.size() != 4) {

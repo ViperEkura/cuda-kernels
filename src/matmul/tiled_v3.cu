@@ -1,4 +1,5 @@
 #include "kernels/matmul.h"
+#include "registry.h"
 #include "common.h"
 #include "utils/swizzle.cuh"
 
@@ -126,3 +127,5 @@ void launch_matmul_tiled_v3(matmul_param_t param)
     dim3 grid((param.N + BN - 1) / BN, (param.M + BM - 1) / BM);
     matmul_tiled_v3<<<grid, block>>>(param);
 }
+
+REGISTER_KERNEL(tiled_v3, launch_matmul_tiled_v3)

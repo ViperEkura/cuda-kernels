@@ -1,4 +1,5 @@
 #include "kernels/conv2d.h"
+#include "registry.h"
 
 __global__ void conv2d_native(conv2d_param_t param){
     int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -75,3 +76,5 @@ void launch_conv2d_native(conv2d_param_t param){
     dim3 thread(threadx, thready, threadz);
     conv2d_native<<<block, thread>>>(param);
 }
+
+REGISTER_KERNEL(native, launch_conv2d_native)

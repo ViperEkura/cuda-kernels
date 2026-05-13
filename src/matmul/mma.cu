@@ -1,4 +1,5 @@
 #include "kernels/matmul.h"
+#include "registry.h"
 #include <cuda_fp16.h>
 #include <cstdint>
 #include <cstdio>
@@ -215,3 +216,5 @@ void launch_matmul_mma(matmul_param_t param)
 
     matmul_mma<<<grid, block>>>(param);
 }
+
+REGISTER_KERNEL(mma, launch_matmul_mma)

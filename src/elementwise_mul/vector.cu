@@ -1,4 +1,5 @@
 #include "kernels/elementwise_mul.h"
+#include "registry.h"
 
 static constexpr int THRED = 256;
 static constexpr int TILE_SIZE = 32;
@@ -66,3 +67,5 @@ void launch_elementwise_mul_vector(elementwise_mul_param_t param)
     
     elementwise_mul_vector<<<block, THRED>>>(param);
 }
+
+REGISTER_KERNEL(vector, launch_elementwise_mul_vector)

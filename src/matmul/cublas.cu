@@ -1,4 +1,5 @@
 #include <cublas_v2.h>
+#include "registry.h"
 #include "kernels/matmul.h"
 #include "common.h"
 
@@ -30,3 +31,5 @@ void launch_matmul_cublas(matmul_param_t param) {
     cudaDeviceSynchronize();
     cublasDestroy(handle);
 }
+
+REGISTER_KERNEL(cublas, launch_matmul_cublas)
