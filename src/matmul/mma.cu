@@ -4,7 +4,7 @@
 #include <cstdio>
 
 static constexpr int BM = 128;
-static constexpr int BN = 128;
+static constexpr int BN = 64;
 static constexpr int BK = 16;
 
 static constexpr int MMA_M = 16;
