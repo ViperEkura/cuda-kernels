@@ -23,6 +23,4 @@ __forceinline__ __device__ T warpReduceSum(T val, int width=32) {
     return val;
 }
 
-// ------------------ Block-level reductions ------------------
-
 #endif

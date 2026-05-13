@@ -20,18 +20,7 @@ int main(int argc, char** argv){
     ArgParser parser(argc, argv);
     std::string func_name = parser.get("launch_func", "smem");
     std::string iter_num = parser.get("iter", "10");
-    LaunchFunc launch_func = nullptr;
-
-    auto it = func_map.find(func_name);
-    if (it == func_map.end()) {
-        fprintf(stderr, "Error: Unknown kernel '%s'. Available kernels: ", func_name.c_str());
-        for (const auto& pair : func_map) {
-            fprintf(stderr, "%s ", pair.first.c_str());
-        }
-        fprintf(stderr, "\n");
-        return EXIT_FAILURE;
-    }
-    launch_func = it->second;
+    LaunchFunc launch_func = lookup_kernel(func_map, func_name);
 
     const auto& pos = parser.positionals();
     if (pos.size() != 3) {
@@ -46,9 +35,9 @@ int main(int argc, char** argv){
         fprintf(stderr, "\n");
         return EXIT_FAILURE;
     }
-    int outer  = atoi(argv[1]);
-    int dim    = atoi(argv[2]);
-    int inner  = atoi(argv[3]);
+    int outer  = atoi(pos[0].c_str());
+    int dim    = atoi(pos[1].c_str());
+    int inner  = atoi(pos[2].c_str());
     int iternum = atoi(iter_num.c_str());
     int seed   = 42;
 

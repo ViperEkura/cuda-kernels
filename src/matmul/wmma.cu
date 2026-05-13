@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "kernels/matmul.h"
+#include "utils/swizzle.cuh"
 
 using namespace nvcuda;
 
@@ -10,7 +11,6 @@ static constexpr int WMMA_M = 16;
 static constexpr int WMMA_N = 16;
 static constexpr int WMMA_K = 16;
 
-#define FLOAT4_REF(x)(*reinterpret_cast<float4*>((x)))
 #define HALF2_PTR(x)(reinterpret_cast<half2*>((x)))
 
 __global__ void matmul_wmma(matmul_param_t param)

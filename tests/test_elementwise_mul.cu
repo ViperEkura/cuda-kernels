@@ -23,17 +23,7 @@ int main(int argc, char** argv)
     std::string func_name = parser.get("launch_func", "vector");
     std::string iter_num = parser.get("iter", "10");
 
-    LaunchFunc launch_func = nullptr;
-    auto it = func_map.find(func_name);
-    if (it == func_map.end()) {
-        fprintf(stderr, "Error: Unknown kernel '%s'. Available kernels: ", func_name.c_str());
-        for (const auto& pair : func_map) {
-            fprintf(stderr, "%s ", pair.first.c_str());
-        }
-        fprintf(stderr, "\n");
-        return EXIT_FAILURE;
-    }
-    launch_func = it->second;
+    LaunchFunc launch_func = lookup_kernel(func_map, func_name);
 
     const auto& pos = parser.positionals();
     if (pos.size() != 1) {

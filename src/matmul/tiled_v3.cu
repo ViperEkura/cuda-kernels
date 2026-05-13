@@ -1,5 +1,6 @@
 #include "kernels/matmul.h"
 #include "common.h"
+#include "utils/swizzle.cuh"
 
 static constexpr int BM = 128, BN = 128;
 static constexpr int BK = 8;
@@ -7,10 +8,6 @@ static constexpr int TM = 8, TN = 8;
 static constexpr int THREAD_NUM = (BM / TM) * (BN / TN);
 static constexpr int MEM_PER_THRED_LHS = (BM * BK) / THREAD_NUM; //BK * TM * TN / BN
 static constexpr int MEM_PER_THRED_RHS = (BN * BK) / THREAD_NUM; //BK * TM * TN / BM
-
-#define FLOAT4_PTR(x)(reinterpret_cast<float4*>((x)))
-#define FLOAT4_REF(x)(*reinterpret_cast<float4*>((x)))
-#define SWIZZLE_BANK(x) ((x) ^ ((x) >> 5))
 
 __global__ void matmul_tiled_v3(matmul_param_t param)
 {

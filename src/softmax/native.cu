@@ -1,5 +1,4 @@
 #include "kernels/softmax.h"
-#include <stdexcept>
 
 
 static constexpr int Bd = 256;

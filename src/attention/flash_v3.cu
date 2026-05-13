@@ -1,11 +1,8 @@
 #include "kernels/attention.h"
+#include "utils/swizzle.cuh"
 
 static constexpr int Bl = 64;
 static constexpr int Bd = 32;
-
-#define FLOAT4_PTR(x)(reinterpret_cast<float4*>((x)))
-#define FLOAT4_REF(x)(*reinterpret_cast<float4*>((x)))
-#define SWIZZLE_BANK(x) ((((x >> 5) ^ (x >> 2)) << 2) + (x & 3))
 
 __global__ void sdqa_attention_fwd_flash_v3(attention_param_t param)
 {
@@ -49,10 +46,10 @@ __global__ void sdqa_attention_fwd_flash_v3(attention_param_t param)
                 int load_smem_v = tx * Bd + d;
                 int load_gmem_v = batch * Lkv * D + (kv_start + tx) * D + (o_d_start + d);
                 if (kv_start + tx < Lkv && o_d_start + d < D)
-                    FLOAT4_REF(smem_v + SWIZZLE_BANK(load_smem_v)) = __ldg(FLOAT4_PTR(param.v_ptr + load_gmem_v));
+                    FLOAT4_REF(smem_v + SWIZZLE_BANK_V3(load_smem_v)) = __ldg(FLOAT4_PTR(param.v_ptr + load_gmem_v));
                 else
                     for(int td = 0; td < 4; td++)
-                        smem_v[SWIZZLE_BANK(load_smem_v + td)] = 0;
+                        smem_v[SWIZZLE_BANK_V3(load_smem_v + td)] = 0;
             }
             // S = 0
             for(int kv = 0; kv < Bl; kv++)
@@ -70,19 +67,19 @@ __global__ void sdqa_attention_fwd_flash_v3(attention_param_t param)
                     int load_gmem_q = batch * Lq * D + (q_start + tx) * D + (qk_d_start + d);
 
                     if (q_start + tx < Lq && qk_d_start + d < D)
-                        FLOAT4_REF(smem_q + SWIZZLE_BANK(load_smem_q)) = __ldg(FLOAT4_PTR(param.q_ptr + load_gmem_q));
+                        FLOAT4_REF(smem_q + SWIZZLE_BANK_V3(load_smem_q)) = __ldg(FLOAT4_PTR(param.q_ptr + load_gmem_q));
                     else
                         for(int td = 0; td < 4; td++)
-                            smem_q[SWIZZLE_BANK(load_smem_q + td)] = 0;
+                            smem_q[SWIZZLE_BANK_V3(load_smem_q + td)] = 0;
 
                     int load_smem_k = tx * Bd + d;
                     int load_gmem_k = batch * Lkv * D + (kv_start + tx) * D + (qk_d_start + d);
 
                     if (kv_start + tx < Lkv && qk_d_start + d < D)
-                        FLOAT4_REF(smem_k + SWIZZLE_BANK(load_smem_k)) = __ldg(FLOAT4_PTR(param.k_ptr + load_gmem_k));
+                        FLOAT4_REF(smem_k + SWIZZLE_BANK_V3(load_smem_k)) = __ldg(FLOAT4_PTR(param.k_ptr + load_gmem_k));
                     else
                         for(int td = 0; td < 4; td++)
-                            smem_k[SWIZZLE_BANK(load_smem_k + td)] = 0;
+                            smem_k[SWIZZLE_BANK_V3(load_smem_k + td)] = 0;
                 }
 
                 __syncthreads();
@@ -90,12 +87,12 @@ __global__ void sdqa_attention_fwd_flash_v3(attention_param_t param)
                 for(int d = 0; d < Bd; d++)
                 {
                     int load_smem_q = tx * Bd + d;
-                    float q_val = smem_q[SWIZZLE_BANK(load_smem_q)];
+                    float q_val = smem_q[SWIZZLE_BANK_V3(load_smem_q)];
                     
                     for(int kv = 0; kv < Bl; kv++)
                     {
                         int load_smem_k = kv * Bd + d;
-                        reg_s[kv] += q_val * smem_k[SWIZZLE_BANK(load_smem_k)];
+                        reg_s[kv] += q_val * smem_k[SWIZZLE_BANK_V3(load_smem_k)];
                     }
                 }
                 __syncthreads();
@@ -139,7 +136,7 @@ __global__ void sdqa_attention_fwd_flash_v3(attention_param_t param)
                 for(int kv = 0; kv < Bl; kv++)
                 {
                     int load_smem_v = kv * Bd + d;
-                    pv += reg_s[kv] * smem_v[SWIZZLE_BANK(load_smem_v)];
+                    pv += reg_s[kv] * smem_v[SWIZZLE_BANK_V3(load_smem_v)];
                 }
                 reg_o[d] = reg_o[d] * old_scale + pv * new_scale;
             }
