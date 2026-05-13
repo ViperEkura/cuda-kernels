@@ -26,6 +26,55 @@ static constexpr int B_SMEM_PER_WARP = MMA_TILES_N * BK * MMA_N;
 #define PACK_HALF2(lo, hi) \
     (((uint32_t)*(uint16_t*)&(hi) << 16) | *(uint16_t*)&(lo))
 
+__device__ __forceinline__ void mma_m16n8k16(
+    uint32_t (&regA)[4], uint32_t (&regB)[2], float (&regC)[4])
+{
+    asm volatile(
+        "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 "
+        "{%0, %1, %2, %3}, "
+        "{%4, %5, %6, %7}, "
+        "{%8, %9}, "
+        "{%10, %11, %12, %13};"
+        : "=f"(regC[0]), "=f"(regC[1]), "=f"(regC[2]), "=f"(regC[3])
+        : "r"(regA[0]), "r"(regA[1]), "r"(regA[2]), "r"(regA[3]),
+          "r"(regB[0]), "r"(regB[1]),
+          "f"(regC[0]), "f"(regC[1]), "f"(regC[2]), "f"(regC[3]));
+}
+
+__device__ __forceinline__ void load_regs_a(
+    uint32_t (&ra)[4], const half *smemA, int row0, int row1, int k0)
+{
+    ra[0] = PACK_HALF2(smemA[row0 * BK + k0],
+                       smemA[row0 * BK + k0 + 1]);
+    ra[1] = PACK_HALF2(smemA[row1 * BK + k0],
+                       smemA[row1 * BK + k0 + 1]);
+    ra[2] = PACK_HALF2(smemA[row0 * BK + 8 + k0],
+                       smemA[row0 * BK + 8 + k0 + 1]);
+    ra[3] = PACK_HALF2(smemA[row1 * BK + 8 + k0],
+                       smemA[row1 * BK + 8 + k0 + 1]);
+}
+
+__device__ __forceinline__ void load_regs_b(
+    uint32_t (&rb)[2], const half *smemB, int b_base, int kb0, int n0)
+{
+    rb[0] = PACK_HALF2(smemB[b_base +  kb0      * MMA_N + n0],
+                       smemB[b_base + (kb0 + 1) * MMA_N + n0]);
+    rb[1] = PACK_HALF2(smemB[b_base + (kb0 + 8) * MMA_N + n0],
+                       smemB[b_base + (kb0 + 9) * MMA_N + n0]);
+}
+
+__device__ __forceinline__ void store_regs_c(
+    float *dst, int M, int N, int row, int col, float (&acc)[4])
+{
+#pragma unroll
+    for (int i = 0; i < 4; i++) {
+        int r = row + ((i >= 2) ? 8 : 0);
+        int c = col + (i & 1);
+        if (r < M && c < N)
+            dst[r * N + c] = acc[i];
+    }
+}
+
 __global__ void matmul_mma(matmul_param_t param)
 {
     int M = param.M;
@@ -93,16 +142,8 @@ __global__ void matmul_mma(matmul_param_t param)
             int a_row0 = wm_start + mm * MMA_M + r0;
             int a_row1 = a_row0 + 8;
 
-            uint32_t ra[4] = {
-                PACK_HALF2(smemA[a_row0 * BK + k0],
-                           smemA[a_row0 * BK + k0 + 1]),
-                PACK_HALF2(smemA[a_row1 * BK + k0],
-                           smemA[a_row1 * BK + k0 + 1]),
-                PACK_HALF2(smemA[a_row0 * BK + 8 + k0],
-                           smemA[a_row0 * BK + 8 + k0 + 1]),
-                PACK_HALF2(smemA[a_row1 * BK + 8 + k0],
-                           smemA[a_row1 * BK + 8 + k0 + 1]),
-            };
+            uint32_t ra[4];
+            load_regs_a(ra, smemA, a_row0, a_row1, k0);
 
 #pragma unroll
             for (int mn = 0; mn < MMA_TILES_N; mn++) {
@@ -110,24 +151,10 @@ __global__ void matmul_mma(matmul_param_t param)
                 int kb0 = (lane_id % 4) * 2;
                 int n0  = lane_id / 4;
 
-                uint32_t rb[2] = {
-                    PACK_HALF2(smemB[b_base +  kb0      * MMA_N + n0],
-                               smemB[b_base + (kb0 + 1) * MMA_N + n0]),
-                    PACK_HALF2(smemB[b_base + (kb0 + 8) * MMA_N + n0],
-                               smemB[b_base + (kb0 + 9) * MMA_N + n0]),
-                };
+                uint32_t rb[2];
+                load_regs_b(rb, smemB, b_base, kb0, n0);
 
-                float (&c)[4] = acc[mm][mn];
-                asm volatile(
-                    "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 "
-                    "{%0, %1, %2, %3}, "
-                    "{%4, %5, %6, %7}, "
-                    "{%8, %9}, "
-                    "{%10, %11, %12, %13};"
-                    : "=f"(c[0]), "=f"(c[1]), "=f"(c[2]), "=f"(c[3])
-                    : "r"(ra[0]), "r"(ra[1]), "r"(ra[2]), "r"(ra[3]),
-                      "r"(rb[0]), "r"(rb[1]),
-                      "f"(c[0]), "f"(c[1]), "f"(c[2]), "f"(c[3]));
+                mma_m16n8k16(ra, rb, acc[mm][mn]);
             }
         }
 
@@ -138,16 +165,9 @@ __global__ void matmul_mma(matmul_param_t param)
     for (int mm = 0; mm < MMA_TILES_M; mm++) {
 #pragma unroll
         for (int mn = 0; mn < MMA_TILES_N; mn++) {
-            int r0 = lane_id / 4;
-#pragma unroll
-            for (int i = 0; i < 4; i++) {
-                int row = block_m + wm_start + mm * MMA_M
-                        + r0 + ((i >= 2) ? 8 : 0);
-                int col = block_n + wn_start + mn * MMA_N
-                        + (lane_id % 4) * 2 + (i & 1);
-                if (row < M && col < N)
-                    dst[row * N + col] = acc[mm][mn][i];
-            }
+            int row = block_m + wm_start + mm * MMA_M + (lane_id / 4);
+            int col = block_n + wn_start + mn * MMA_N + (lane_id % 4) * 2;
+            store_regs_c(dst, M, N, row, col, acc[mm][mn]);
         }
     }
 }
