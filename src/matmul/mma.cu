@@ -21,10 +21,12 @@ static constexpr int WARPS_N = BN / WN;
 static constexpr int WARPS   = WARPS_M * WARPS_N;
 static constexpr int THREADS = WARPS * 32;
 
-static constexpr int B_SMEM_PER_WARP = MMA_TILES_N * BK * MMA_N;
+static constexpr int BLK = 8;
+static constexpr int BLK_SZ = 64;
+static constexpr int BK_BLKS = BK / BLK;
 
-#define PACK_HALF2(lo, hi) \
-    (((uint32_t)*(uint16_t*)&(hi) << 16) | *(uint16_t*)&(lo))
+static constexpr int B_TILE_SZ = BK_BLKS * BLK_SZ;
+static constexpr int B_SMEM_PER_WARP = MMA_TILES_N * B_TILE_SZ;
 
 __device__ __forceinline__ void mma_m16n8k16(
     uint32_t (&regA)[4], uint32_t (&regB)[2], float (&regC)[4])
@@ -41,26 +43,47 @@ __device__ __forceinline__ void mma_m16n8k16(
           "f"(regC[0]), "f"(regC[1]), "f"(regC[2]), "f"(regC[3]));
 }
 
-__device__ __forceinline__ void load_regs_a(
-    uint32_t (&ra)[4], const half *smemA, int row0, int row1, int k0)
+__device__ __forceinline__ void ldmatrix_a(
+    uint32_t (&ra)[4], const half *smemA,
+    int wm_start, int mm, int lane_id)
 {
-    ra[0] = PACK_HALF2(smemA[row0 * BK + k0],
-                       smemA[row0 * BK + k0 + 1]);
-    ra[1] = PACK_HALF2(smemA[row1 * BK + k0],
-                       smemA[row1 * BK + k0 + 1]);
-    ra[2] = PACK_HALF2(smemA[row0 * BK + 8 + k0],
-                       smemA[row0 * BK + 8 + k0 + 1]);
-    ra[3] = PACK_HALF2(smemA[row1 * BK + 8 + k0],
-                       smemA[row1 * BK + 8 + k0 + 1]);
+    int group     = lane_id >> 3;
+    int row_local = lane_id & 7;
+
+    int row_off = (group == 1 || group == 3) ? 8 : 0;
+    int col_off = (group >= 2) ? 8 : 0;
+
+    int row = wm_start + mm * MMA_M + row_off + row_local;
+    int block_row = row / BLK;
+    int inner    = row % BLK;
+    int block_col = col_off / BLK;
+    const half *addr = &smemA[(block_row * BK_BLKS + block_col) * BLK_SZ
+                            + inner * BLK];
+
+    uint32_t saddr = (uint32_t)__cvta_generic_to_shared(addr);
+    asm volatile(
+        "ldmatrix.sync.aligned.m8n8.x4.shared.b16 "
+        "{%0, %1, %2, %3}, [%4];"
+        : "=r"(ra[0]), "=r"(ra[1]), "=r"(ra[2]), "=r"(ra[3])
+        : "r"(saddr));
 }
 
-__device__ __forceinline__ void load_regs_b(
-    uint32_t (&rb)[2], const half *smemB, int b_base, int kb0, int n0)
+__device__ __forceinline__ void ldmatrix_b(
+    uint32_t (&rb)[2], const half *smemB,
+    int b_base, int lane_id)
 {
-    rb[0] = PACK_HALF2(smemB[b_base +  kb0      * MMA_N + n0],
-                       smemB[b_base + (kb0 + 1) * MMA_N + n0]);
-    rb[1] = PACK_HALF2(smemB[b_base + (kb0 + 8) * MMA_N + n0],
-                       smemB[b_base + (kb0 + 9) * MMA_N + n0]);
+    int group     = lane_id >> 3;
+    int row_mod   = lane_id & 7;
+    int block_off = group * BLK_SZ;
+
+    const half *addr = &smemB[b_base + block_off + row_mod * BLK];
+
+    uint32_t saddr = (uint32_t)__cvta_generic_to_shared(addr);
+    asm volatile(
+        "ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16 "
+        "{%0, %1}, [%2];"
+        : "=r"(rb[0]), "=r"(rb[1])
+        : "r"(saddr));
 }
 
 __device__ __forceinline__ void store_regs_c(
@@ -107,9 +130,14 @@ __global__ void matmul_mma(matmul_param_t param)
         for (int i = threadIdx.x; i < BM * BK; i += THREADS) {
             int row = i / BK;
             int col = i % BK;
+
+            int bm = row / BLK, bk = col / BLK;
+            int lr = row % BLK, lc = col % BLK;
+            int idx = (bm * BK_BLKS + bk) * BLK_SZ + lr * BLK + lc;
+
             int g_row = block_m + row;
             int g_col = k_block + col;
-            smemA[i] = (g_row < M && g_col < K)
+            smemA[idx] = (g_row < M && g_col < K)
                 ? __float2half(lhs[g_row * K + g_col])
                 : __float2half(0.0f);
         }
@@ -119,40 +147,37 @@ __global__ void matmul_mma(matmul_param_t param)
             int n_col  = i % BN;
             int g_k = k_block + k_row;
             int g_n = block_n + n_col;
+
             int tgt_warp_n  = n_col / WN;
             int col_in_warp = n_col % WN;
             int mma_tile    = col_in_warp / MMA_N;
             int col_in_mma  = col_in_warp % MMA_N;
-            int smem_idx = tgt_warp_n * B_SMEM_PER_WARP
-                         + mma_tile * (BK * MMA_N)
-                         + k_row * MMA_N
-                         + col_in_mma;
-            smemB[smem_idx] = (g_k < K && g_n < N)
+
+            int bk = k_row / BLK;
+            int lk = k_row % BLK;
+            int idx = tgt_warp_n * B_SMEM_PER_WARP
+                    + mma_tile * B_TILE_SZ
+                    + bk * BLK_SZ
+                    + lk * BLK
+                    + col_in_mma;
+
+            smemB[idx] = (g_k < K && g_n < N)
                 ? __float2half(rhs[g_k * N + g_n])
                 : __float2half(0.0f);
         }
 
         __syncthreads();
 
-        int r0 = lane_id / 4;
-        int k0 = (lane_id % 4) * 2;
-
 #pragma unroll
         for (int mm = 0; mm < MMA_TILES_M; mm++) {
-            int a_row0 = wm_start + mm * MMA_M + r0;
-            int a_row1 = a_row0 + 8;
-
             uint32_t ra[4];
-            load_regs_a(ra, smemA, a_row0, a_row1, k0);
+            ldmatrix_a(ra, smemA, wm_start, mm, lane_id);
 
 #pragma unroll
             for (int mn = 0; mn < MMA_TILES_N; mn++) {
-                int b_base = warp_n * B_SMEM_PER_WARP + mn * (BK * MMA_N);
-                int kb0 = (lane_id % 4) * 2;
-                int n0  = lane_id / 4;
-
+                int b_base = warp_n * B_SMEM_PER_WARP + mn * B_TILE_SZ;
                 uint32_t rb[2];
-                load_regs_b(rb, smemB, b_base, kb0, n0);
+                ldmatrix_b(rb, smemB, b_base, lane_id);
 
                 mma_m16n8k16(ra, rb, acc[mm][mn]);
             }

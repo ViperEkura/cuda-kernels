@@ -6,48 +6,25 @@
 - CUDA: 12.8.93
 - 指令: `mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32`
 
-## Bug #1: `ldmatrix` 在 SM 8.9 上读取错误的子矩阵地址
+## Bug #1: `ldmatrix` 用法错误 → 已修正（非驱动 bug）
 
 ### 现象
 
-使用 `ldmatrix.sync.aligned.m8n8.x4.shared.b16` 加载 A 矩阵（16×16 = 4 个 8×8 子矩阵），所有 4 个子矩阵都从 shared memory 的**同一个** 8×8 区域（前 64 个 half 元素）读取数据，而不是从 4 个不同的象限。
-
-验证方式：将 smem[0..63] 填充为 1.0，smem[64..255] 填充为 99.0，B=all 1s，结果输出全为 16.0，证明 ldmatrix x4 从未读取 smem[64..255]。
-
-同样的问题也出现在 `ldmatrix.sync.aligned.m8n8.x2.trans.shared.b16`（用于加载 B 矩阵）。
+最初使用 `ldmatrix.sync.aligned.m8n8.x4.shared.b16` 加载 A 矩阵时，所有 32 个线程传入**同一个基地址**，导致所有 4 个子矩阵都从 base address + 0 的同一个 row 读取数据。同样的问题出现在 B 矩阵的 x2.trans 上。
 
 ### 根因
 
-疑似 CUDA 12.8 驱动在 SM 8.9 上的 bug，ldmatrix 的子矩阵地址偏移计算不正确，所有子矩阵都从 base address + 0 开始读取。
+**不是驱动 bug**，而是对 PTX ISA 文档的理解错误。查阅 PTX ISA 9.2 文档 §9.7.14.5.15 后确认，ldmatrix 的三个关键要求：
+
+1. **Blocked 8×8 smem 布局**：ldmatrix 内部用 `addr+64half`、`addr+128half` 计算子矩阵偏移，这些偏移要求 smem 以 4 个连续 8×8 块（blocked layout）组织，而非标准行优先布局。
+
+2. **每线程独立行地址**：32 线程分为 4 组（threads 0-7 → Q0, 8-15 → Q2, 16-23 → Q1, 24-31 → Q3），**每个线程提供自己所在行的地址**，由 `lane_id / 4` 决定行号和 `lane_id >> 3` 决定组号。
+
+3. **B `.trans` 用 `[K][N]` 布局**：对于 x2.trans，块内必须按 `lk * 8 + n`（即 `[K-row][N-col]`）存储，使 ldmatrix 的 stride-8 读取遍历 K-rows，transpose 后得到同一 N-col 的多行 K 值。
 
 ### 修复
 
-**放弃 ldmatrix，改为手动从 shared memory 加载寄存器。**
-
-对 A 矩阵（m16×k16，每个线程 4 个 uint32 寄存器，共 8 个 f16 值）：
-
-```
-r0 = lane_id / 4
-k0 = (lane_id % 4) * 2
-
-ra[0] = {A[r0][k0+0],     A[r0][k0+1]}         // rows 0-7,  cols 0-7
-ra[1] = {A[r0+8][k0+0],   A[r0+8][k0+1]}       // rows 8-15, cols 0-7
-ra[2] = {A[r0][k0+8],     A[r0][k0+8+1]}       // rows 0-7,  cols 8-15
-ra[3] = {A[r0+8][k0+8],   A[r0+8][k0+8+1]}     // rows 8-15, cols 8-15
-```
-
-对 B 矩阵（k16×n8，每个线程 2 个 uint32 寄存器）：
-
-```
-rb[0] = {B[kb0+0][n0], B[kb0+1][n0]}
-rb[1] = {B[kb0+8][n0], B[kb0+9][n0]}
-```
-
-使用宏打包两个 half 到一个 uint32：
-
-```cpp
-#define PACK_HALF2(lo, hi) (((uint32_t)*(uint16_t*)&(hi) << 16) | *(uint16_t*)&(lo))
-```
+移除手动 `PACK_HALF2` 加载，改用正确配置的 ldmatrix（见 `src/matmul/mma.cu`）。
 
 ## Bug #2: MMA 的 A 寄存器排列顺序在 SM 8.9 上与 SM 7.5 不同
 
@@ -63,7 +40,7 @@ rb[1] = {B[kb0+8][n0], B[kb0+9][n0]}
 - ra[2] = A2（rows 8-15, cols 0-7）
 - ra[3] = A3（rows 8-15, cols 8-15）
 
-但在 SM 8.9 上，顺序变为 `{A0, A2, A1, A3}`：
+但在 SM 8.x 上，顺序变为 `{A0, A2, A1, A3}`：
 - ra[0] = A0（rows 0-7, cols 0-7）
 - ra[1] = A2（rows 8-15, cols 0-7）**← rows-first**
 - ra[2] = A1（rows 0-7, cols 8-15）
@@ -71,9 +48,11 @@ rb[1] = {B[kb0+8][n0], B[kb0+9][n0]}
 
 即**先按行分组（0-7, 8-15），再按列分组（0-7, 8-15）**，而非先按列再按行。
 
+ldmatrix 在 SM 8.x 上自动产生正确的 rows-first 寄存器顺序，无需手动调整。
+
 ### 修复
 
-调整 ra[0..3] 的赋值顺序为 `{A0, A2, A1, A3}`。
+调整 ra[0..3] 的赋值顺序为 `{A0, A2, A1, A3}`。ldmatrix 自动匹配此顺序。
 
 ## Bug #3: C 输出映射公式错误
 
@@ -101,12 +80,9 @@ row = r0 + ((i >= 2) ? 8 : 0)
 
 ## 测试结果
 
-| 矩阵大小 | GFLOPS | 验证 |
-|----------|--------|------|
-| 128³    | 21     | 0 errors |
-| 256³    | 98     | 0 errors |
-| 512³    | 728    | 0 errors |
-| 1024³   | 2144   | 0 errors |
-| 2048³   | 2840   | 0 errors |
-
-在 2048³ 上，PTX MMA 比 cuBLAS (2344 GFLOPS) 快 21%。
+| 矩阵大小 | PACK_HALF2 GFLOPS | ldmatrix GFLOPS | 验证 |
+|----------|-------------------|-----------------|------|
+| 128³    | 23                | 30              | 0 errors |
+| 256³    | 174               | 157             | 0 errors |
+| 512³    | 993               | 1004            | 0 errors |
+| 1024³   | 2289              | 2547            | 0 errors |
